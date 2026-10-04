@@ -1,6 +1,8 @@
 # dg-wallet
 
-Wallet platform. Currently contains the `auth-service` Go module and its database migrations.
+Wallet platform. Contains two Go modules — `auth-service` (users, JWT, gRPC token
+validation) and `wallet-service` (wallets). Each has its own `.env`, its own
+Postgres database, and its own migrations.
 
 ## Requirements
 
@@ -25,7 +27,7 @@ go install github.com/golang-migrate/migrate/v4/cmd/migrate@v4.20.1
 
 ## Environment Variables
 
-Read from `auth-service/.env`.
+Read from the `.env` in each service's own directory.
 
 | Name         | Description                        | Required |
 |--------------|------------------------------------|----------|
@@ -34,17 +36,23 @@ Read from `auth-service/.env`.
 | `DB_USER`    | PostgreSQL user                    | Yes      |
 | `DB_PASS`    | PostgreSQL password                | Yes      |
 | `DB_NAME`    | Database name                      | Yes      |
-| `JWT_SECRET` | HS256 signing key for JWTs         | Yes      |
-| `GRPC_PORT`  | Port for the gRPC server           | No       |
+| `JWT_SECRET` | HS256 signing key for JWTs         | auth-service only |
+| `GRPC_PORT`  | Port for the gRPC server           | auth-service only, optional |
+
+`auth-service/.env` points at `auth_db`; `wallet-service/.env` points at
+`wallet_db`. The two databases are separate, so there are no cross-database
+foreign keys between them.
 
 Generate a real secret with `openssl rand -base64 32`. Anyone holding it can mint
 valid tokens, so never commit `.env`.
 
 ## Migrations
 
-Migrations live in `auth-service/database/migrations` and are applied with the
-`migrate` CLI via the `Makefile` in `auth-service`. The targets load `.env` into
+Migrations live in `<service>/database/migrations` and are applied with the
+`migrate` CLI via the `Makefile` in that service. The targets load `.env` into
 the shell themselves, so no setup is needed beforehand.
+
+### auth-service
 
 ```bash
 cd auth-service
@@ -78,7 +86,27 @@ database/migrations/000002_add_<table>_table.up.sql
 database/migrations/000002_add_<table>_table.down.sql
 ```
 
+### wallet-service
+
+Identical targets, run from `wallet-service/`. They apply to `wallet_db` rather
+than `auth_db`:
+
+```bash
+cd wallet-service
+```
+
+| Command        | Description                       |
+|----------------|-----------------------------------|
+| `make up`      | Apply all pending migrations      |
+| `make down`    | Roll back the last migration      |
+| `make down-all`| Roll back all migrations          |
+| `make version` | Show current migration version    |
+
+Each service keeps its own migration history, so both start at version `1`.
+
 ## Schema
+
+### auth_db
 
 | Version | Migration                     | Description              |
 |---------|-------------------------------|--------------------------|
@@ -92,6 +120,22 @@ database/migrations/000002_add_<table>_table.down.sql
 | `email`   | `VARCHAR(255)`| `NOT NULL`, `UNIQUE`     |
 | `password`| `VARCHAR(255)`| `NOT NULL`, bcrypt hash  |
 | `id`      | `BIGSERIAL`   | `PRIMARY KEY`            |
+
+### wallet_db
+
+| Version | Migration                       | Description                 |
+|---------|---------------------------------|-----------------------------|
+| 1       | `000001_create_wallet_table`    | Creates `wallet_table`      |
+
+`wallet_table` columns:
+
+| Column     | Type           | Constraints                     |
+|------------|----------------|---------------------------------|
+| `wallet_id`| `BIGSERIAL`    | `PRIMARY KEY`                   |
+| `balance`  | `NUMERIC(19,4)`| `NOT NULL`, `DEFAULT 0`         |
+
+`balance` is exact decimal money with four fractional digits. There is no
+`CHECK (balance >= 0)`, so negative balances are permitted.
 
 ## Endpoints
 
@@ -223,32 +267,42 @@ the user still exists in the database.
 ```
 .
 ├── README.md
-└── auth-service
+├── auth-service
+│   ├── .env
+│   ├── Makefile
+│   ├── go.mod
+│   ├── go.sum
+│   ├── main.go
+│   ├── database
+│   │   ├── db
+│   │   │   └── db.go
+│   │   └── migrations
+│   │       ├── 000001_create_users_table.up.sql
+│   │       ├── 000001_create_users_table.down.sql
+│   │       ├── 000002_add_users_id.up.sql
+│   │       └── 000002_add_users_id.down.sql
+│   ├── gen
+│   │   └── auth
+│   │       ├── auth.pb.go
+│   │       └── auth_grpc.pb.go
+│   ├── grpc
+│   │   └── server.go
+│   ├── jwt
+│   │   └── jwt.go
+│   ├── models
+│   │   └── users.go
+│   ├── proto
+│   │   └── auth.proto
+│   └── routes
+│       └── routes.go
+└── wallet-service
     ├── .env
     ├── Makefile
     ├── go.mod
     ├── go.sum
     ├── main.go
-    ├── database
-    │   ├── db
-    │   │   └── db.go
-    │   └── migrations
-    │       ├── 000001_create_users_table.up.sql
-    │       ├── 000001_create_users_table.down.sql
-    │       ├── 000002_add_users_id.up.sql
-    │       └── 000002_add_users_id.down.sql
-    ├── gen
-    │   └── auth
-    │       ├── auth.pb.go
-    │       └── auth_grpc.pb.go
-    ├── grpc
-    │   └── server.go
-    ├── jwt
-    │   └── jwt.go
-    ├── models
-    │   └── users.go
-    ├── proto
-    │   └── auth.proto
-    └── routes
-        └── routes.go
+    └── database
+        └── migrations
+            ├── 000001_create_wallet_table.up.sql
+            └── 000001_create_wallet_table.down.sql
 ```
