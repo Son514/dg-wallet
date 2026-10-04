@@ -75,20 +75,43 @@ database/migrations/000002_add_<table>_table.down.sql
 
 ## Schema
 
-| Version | Migration                     | Description        |
-|---------|-------------------------------|--------------------|
-| 1       | `000001_create_users_table`   | Creates `users`    |
+| Version | Migration                     | Description              |
+|---------|-------------------------------|--------------------------|
+| 1       | `000001_create_users_table`   | Creates `users`          |
+| 2       | `000002_add_users_id`         | Adds `id` primary key    |
 
 `users` columns:
 
-| Column    | Type          | Constraints     |
-|-----------|---------------|-----------------|
-| `email`   | `VARCHAR(255)`| `NOT NULL`, `UNIQUE` |
-| `password`| `VARCHAR(255)`| `NOT NULL`       |
+| Column    | Type          | Constraints              |
+|-----------|---------------|--------------------------|
+| `email`   | `VARCHAR(255)`| `NOT NULL`, `UNIQUE`     |
+| `password`| `VARCHAR(255)`| `NOT NULL`, bcrypt hash  |
+| `id`      | `BIGSERIAL`   | `PRIMARY KEY`            |
 
 ## Endpoints
 
-None yet.
+| Method | Path     | Description       |
+|--------|----------|-------------------|
+| POST   | `/users` | Create a new user |
+
+Request body:
+
+```json
+{
+  "email": "user@example.com",
+  "password": "secret"
+}
+```
+
+Passwords are hashed with bcrypt (`bcrypt.DefaultCost`) before storage and are
+never returned by the API. bcrypt only accepts passwords up to 72 bytes.
+
+| Status | Body                                | When                                              |
+|--------|-------------------------------------|---------------------------------------------------|
+| `201`  | `{"id":1,"email":"user@example.com"}`| Created; password is never echoed                 |
+| `400`  | `{"error":"..."}`                    | Body is not valid JSON, or password exceeds 72 bytes |
+| `409`  | `{"error":"email already exists"}`   | Email is already registered                       |
+| `500`  | `{"error":"..."}`                    | Insert failed for any other reason                |
 
 ## Project Structure
 
@@ -100,8 +123,15 @@ None yet.
     ├── Makefile
     ├── go.mod
     ├── go.sum
-    └── database
-        └── migrations
-            ├── 000001_create_users_table.up.sql
-            └── 000001_create_users_table.down.sql
+    ├── main.go
+    ├── database
+    │   ├── db
+    │   │   └── db.go
+    │   └── migrations
+    │       ├── 000001_create_users_table.up.sql
+    │       ├── 000001_create_users_table.down.sql
+    │       ├── 000002_add_users_id.up.sql
+    │       └── 000002_add_users_id.down.sql
+    └── models
+        └── users.go
 ```
