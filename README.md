@@ -35,6 +35,7 @@ Read from `auth-service/.env`.
 | `DB_PASS`    | PostgreSQL password                | Yes      |
 | `DB_NAME`    | Database name                      | Yes      |
 | `JWT_SECRET` | HS256 signing key for JWTs         | Yes      |
+| `GRPC_PORT`  | Port for the gRPC server           | No       |
 
 Generate a real secret with `openssl rand -base64 32`. Anyone holding it can mint
 valid tokens, so never commit `.env`.
@@ -152,6 +153,71 @@ Tokens are signed with HS256 using `JWT_SECRET` and are valid for 1 hour. Claims
 }
 ```
 
+## gRPC
+
+The service exposes `auth.AuthService/ValidateToken` over plaintext gRPC on
+`GRPC_PORT` (default `50051`), started by `main` in a goroutine alongside the HTTP
+server.
+
+The schema lives in `proto/auth.proto`; generated Go code is written to
+`gen/auth/`. Regenerate after editing the proto:
+
+```bash
+make proto
+```
+
+Run from `auth-service/`. It compiles every `*.proto` in `proto/`, so adding a
+schema needs no Makefile change. The underlying command:
+
+```bash
+protoc -I proto \
+  --go_out=. --go_opt=module=son514/auth-service \
+  --go-grpc_out=. --go-grpc_opt=module=son514/auth-service \
+  proto/auth.proto
+```
+
+Requires `protoc`, `protoc-gen-go`, and `protoc-gen-go-grpc` on `PATH`.
+`make proto` does not delete stale output, so removing a message from a proto
+leaves its old `.pb.go` behind — delete it by hand.
+
+### ValidateToken
+
+```bash
+grpcurl -plaintext -import-path proto -proto auth.proto \
+  -d '{"token":"<jwt>"}' \
+  localhost:50051 auth.AuthService/ValidateToken
+```
+
+```json
+{ "token": "eyJhbGciOiJIUzI1NiIs..." }
+```
+
+The call always returns gRPC `OK`; rejection is reported in the response.
+
+```json
+{
+  "valid": true,
+  "userId": "1",
+  "email": "user@example.com"
+}
+```
+
+```json
+{
+  "valid": false,
+  "reason": "token is expired"
+}
+```
+
+`reason` is one of `token is expired`, `token signature is invalid`,
+`token is malformed`, or `token is invalid`.
+
+Note that proto3 omits default values, so a rejected token's response contains no
+`valid` field at all rather than `"valid": false`. Treat an absent `valid` as false.
+
+Validation is cryptographic only — signature and expiry. It does not check that
+the user still exists in the database.
+
 ## Project Structure
 
 ```
@@ -171,10 +237,18 @@ Tokens are signed with HS256 using `JWT_SECRET` and are valid for 1 hour. Claims
     │       ├── 000001_create_users_table.down.sql
     │       ├── 000002_add_users_id.up.sql
     │       └── 000002_add_users_id.down.sql
+    ├── gen
+    │   └── auth
+    │       ├── auth.pb.go
+    │       └── auth_grpc.pb.go
+    ├── grpc
+    │   └── server.go
     ├── jwt
     │   └── jwt.go
     ├── models
     │   └── users.go
+    ├── proto
+    │   └── auth.proto
     └── routes
         └── routes.go
 ```

@@ -13,6 +13,11 @@ type claims struct {
 	jwtlib.RegisteredClaims
 }
 
+type ValidatedClaims struct {
+	UserID string
+	Email  string
+}
+
 func Generate(id int64, email string) (string, error) {
 	token := jwtlib.NewWithClaims(jwtlib.SigningMethodHS256, claims{
 		Email: email,
@@ -24,4 +29,27 @@ func Generate(id int64, email string) (string, error) {
 	})
 
 	return token.SignedString([]byte(os.Getenv("JWT_SECRET")))
+}
+
+func Validate(token string) (*ValidatedClaims, error) {
+	parsed, err := jwtlib.ParseWithClaims(
+		token,
+		&claims{},
+		func(t *jwtlib.Token) (any, error) {
+			return []byte(os.Getenv("JWT_SECRET")), nil
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	parsedClaims, ok := parsed.Claims.(*claims)
+	if !ok {
+		return nil, jwtlib.ErrTokenMalformed
+	}
+
+	return &ValidatedClaims{
+		UserID: parsedClaims.Subject,
+		Email:  parsedClaims.Email,
+	}, nil
 }
