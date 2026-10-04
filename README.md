@@ -171,6 +171,8 @@ Tokens are signed with HS256 using `JWT_SECRET` and are valid for 1 hour. Claims
     │       ├── 000001_create_users_table.down.sql
     │       ├── 000002_add_users_id.up.sql
     │       └── 000002_add_users_id.down.sql
+    ├── jwt
+    │   └── jwt.go
     └── models
         └── users.go
 ```

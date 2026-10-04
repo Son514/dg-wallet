@@ -1,19 +1,17 @@
 package main
 
+// TODO: US-3 — Create a Wallet
+
 import (
 	"database/sql"
 	"errors"
 	"log"
 	"net/http"
-	"os"
-	"strconv"
-	"time"
-
 	"son514/auth-service/database/db"
+	"son514/auth-service/jwt"
 	"son514/auth-service/models"
 
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -51,25 +49,6 @@ type loginUserRequest struct {
 	Password string `json:"password"`
 }
 
-type userClaims struct {
-	Email string `json:"email"`
-	jwt.RegisteredClaims
-}
-
-func signToken(id int64, email string) (string, error) {
-	claims := userClaims{
-		Email: email,
-		RegisteredClaims: jwt.RegisteredClaims{
-			Subject:   strconv.FormatInt(id, 10),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
-		},
-	}
-
-	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).
-		SignedString([]byte(os.Getenv("JWT_SECRET")))
-}
-
 func loginUser(database *sql.DB, c *gin.Context) {
 	var request loginUserRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
@@ -88,7 +67,7 @@ func loginUser(database *sql.DB, c *gin.Context) {
 		return
 	}
 
-	token, err := signToken(id, request.Email)
+	token, err := jwt.Generate(id, request.Email)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
