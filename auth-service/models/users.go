@@ -8,7 +8,10 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-var ErrEmailExists = errors.New("email already exists")
+var (
+	ErrEmailExists        = errors.New("email already exists")
+	ErrInvalidCredentials = errors.New("invalid email or password")
+)
 
 type Users struct {
 	email    string
@@ -22,7 +25,7 @@ func NewUsers(email, password string) *Users {
 	}
 }
 
-func (u *Users) CreateUsers(database *sql.DB) (int64, error) {
+func (u *Users) CreateUser(database *sql.DB) (int64, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(u.password), bcrypt.DefaultCost)
 	if err != nil {
 		return 0, err
@@ -40,6 +43,27 @@ func (u *Users) CreateUsers(database *sql.DB) (int64, error) {
 			return 0, ErrEmailExists
 		}
 		return 0, err
+	}
+
+	return id, nil
+}
+
+func (u *Users) LoginUser(database *sql.DB) (int64, error) {
+	var id int64
+	var hash string
+	err := database.QueryRow(
+		"SELECT id, password FROM users WHERE email = $1",
+		u.email,
+	).Scan(&id, &hash)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrInvalidCredentials
+	}
+	if err != nil {
+		return 0, err
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(u.password)); err != nil {
+		return 0, ErrInvalidCredentials
 	}
 
 	return id, nil

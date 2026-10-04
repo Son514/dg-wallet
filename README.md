@@ -27,13 +27,17 @@ go install github.com/golang-migrate/migrate/v4/cmd/migrate@v4.20.1
 
 Read from `auth-service/.env`.
 
-| Name      | Description       | Required |
-|-----------|-------------------|----------|
-| `DB_HOST` | PostgreSQL host   | Yes      |
-| `DB_PORT` | PostgreSQL port   | Yes      |
-| `DB_USER` | PostgreSQL user   | Yes      |
-| `DB_PASS` | PostgreSQL password | Yes    |
-| `DB_NAME` | Database name     | Yes      |
+| Name         | Description                        | Required |
+|--------------|------------------------------------|----------|
+| `DB_HOST`    | PostgreSQL host                    | Yes      |
+| `DB_PORT`    | PostgreSQL port                    | Yes      |
+| `DB_USER`    | PostgreSQL user                    | Yes      |
+| `DB_PASS`    | PostgreSQL password                | Yes      |
+| `DB_NAME`    | Database name                      | Yes      |
+| `JWT_SECRET` | HS256 signing key for JWTs         | Yes      |
+
+Generate a real secret with `openssl rand -base64 32`. Anyone holding it can mint
+valid tokens, so never commit `.env`.
 
 ## Migrations
 
@@ -90,9 +94,12 @@ database/migrations/000002_add_<table>_table.down.sql
 
 ## Endpoints
 
-| Method | Path     | Description       |
-|--------|----------|-------------------|
-| POST   | `/users` | Create a new user |
+| Method | Path      | Description       |
+|--------|-----------|-------------------|
+| POST   | `/users`  | Create a new user |
+| POST   | `/login`  | Log in, returns a JWT |
+
+### POST /users
 
 Request body:
 
@@ -112,6 +119,38 @@ never returned by the API. bcrypt only accepts passwords up to 72 bytes.
 | `400`  | `{"error":"..."}`                    | Body is not valid JSON, or password exceeds 72 bytes |
 | `409`  | `{"error":"email already exists"}`   | Email is already registered                       |
 | `500`  | `{"error":"..."}`                    | Insert failed for any other reason                |
+
+### POST /login
+
+Request body:
+
+```json
+{
+  "email": "user@example.com",
+  "password": "secret"
+}
+```
+
+| Status | Body                             | When                                              |
+|--------|----------------------------------|---------------------------------------------------|
+| `200`  | `{"token":"eyJhbGciOi..."}`      | Credentials valid; JWT issued                     |
+| `400`  | `{"error":"..."}`                | Body is not valid JSON                            |
+| `401`  | `{"error":"invalid email or password"}` | Email unknown **or** password wrong        |
+| `500`  | `{"error":"..."}`                | Lookup or signing failed for any other reason     |
+
+An unknown email and a wrong password return the same `401` body so the endpoint
+cannot be used to discover which addresses are registered.
+
+Tokens are signed with HS256 using `JWT_SECRET` and are valid for 1 hour. Claims:
+
+```json
+{
+  "email": "user@example.com",
+  "sub": "1",
+  "iat": 1791101769,
+  "exp": 1791105369
+}
+```
 
 ## Project Structure
 
