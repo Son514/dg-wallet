@@ -154,6 +154,13 @@ checked by the database, so concurrent creates cannot both succeed.
 value is `99999999999999.9999`; anything larger overflows and Postgres raises
 `numeric field overflow`.
 
+`wallet_id` is a `BIGSERIAL`, so values are guessable by counting up. Read and
+top-up endpoints answer `403` when the requested `wallet_id` exists but belongs
+to someone else, and `404` only when no such `wallet_id` exists. That is a
+deliberate trade-off: clients get an unambiguous "not yours" instead of a
+confusing "not found", but it does confirm that an id is taken. `wallet_table` is
+also never exposed by id without a valid token.
+
 ## Endpoints
 
 ### auth-service
@@ -274,22 +281,27 @@ Request body:
 `:id` is the `wallet_id`. Ownership is enforced in the `UPDATE ... WHERE
 wallet_id = $2 AND user_id = $3` clause, where `$3` is the `sub` claim of the
 validated token, so matching and authorizing happen in one statement with no
-window between a check and the write. A wallet that does not exist, or that
-belongs to someone else, is reported identically as `404` — the endpoint cannot
-be used to discover which `wallet_id` values exist.
+window between a check and the write. A `403` therefore means the write never
+ran and no money moved.
+
+When the scoped `UPDATE` matches no row, the model looks up the owner of that
+`wallet_id` to separate `403` from `404`. That lookup is diagnostic only — it
+never gates the write, and the extra query runs only on the failure path, so a
+successful top-up still costs one round trip.
 
 `amount` must be greater than zero. The balance is updated with
 `balance = balance + $1::numeric`, which is additive and atomic, so concurrent
 top-ups cannot overwrite each other.
 
-| Status | Body                                | When                                              |
-|--------|-------------------------------------|---------------------------------------------------|
-| `200`  | `{"wallet_id":1,"balance":"100.0000"}` | Top-up applied; `balance` is the new total     |
-| `400`  | `{"error":"..."}`                   | `:id` not numeric, body invalid, or `amount <= 0`  |
-| `401`  | `{"error":"..."}`                   | Missing/empty bearer token, or auth-service rejected it |
-| `404`  | `{"error":"wallet not found"}`      | No such wallet for this caller                     |
-| `503`  | `{"error":"..."}`                   | The gRPC call itself failed — auth-service unreachable |
-| `500`  | `{"error":"..."}`                   | Update failed for any other reason                 |
+| Status | Body                                          | When                                              |
+|--------|-----------------------------------------------|---------------------------------------------------|
+| `200`  | `{"wallet_id":1,"balance":"100.0000"}`         | Top-up applied; `balance` is the new total         |
+| `400`  | `{"error":"..."}`                             | `:id` not numeric, body invalid, or `amount <= 0`  |
+| `401`  | `{"error":"..."}`                             | Missing/empty bearer token, or auth-service rejected it |
+| `403`  | `{"error":"you do not own this wallet"}`      | That wallet belongs to another user                |
+| `404`  | `{"error":"wallet not found"}`                | No wallet with that `wallet_id`                   |
+| `503`  | `{"error":"..."}`                             | The gRPC call itself failed — auth-service unreachable |
+| `500`  | `{"error":"..."}`                             | Update failed for any other reason                 |
 
 `balance` in the response is the **new total**, not the amount added.
 
@@ -309,18 +321,20 @@ Requires an `Authorization: Bearer <jwt>` header, validated over gRPC exactly as
 in the other two endpoints.
 
 Ownership is enforced with `WHERE wallet_id = $1 AND user_id = $2`, where `$2` is
-the `sub` claim of the validated token. A wallet that does not exist, or that
-belongs to someone else, returns the same `404`, so the endpoint cannot be used
-to discover which `wallet_id` values exist.
+the `sub` claim of the validated token. If that scoped query matches no row, the
+model looks up the owner of that `wallet_id` to separate `403` from `404`. Only
+the ownership-scoped `SELECT` decides whether a caller may read a balance; the
+owner lookup runs on the failure path only.
 
-| Status | Body                                              | When                                              |
-|--------|---------------------------------------------------|---------------------------------------------------|
-| `200`  | `{"wallet_id":1,"balance":"110.0000"}`            | Caller owns this wallet                            |
-| `400`  | `{"error":"wallet id must be a number"}`          | `:id` is not numeric                               |
-| `401`  | `{"error":"..."}`                                 | Missing/empty bearer token, or auth-service rejected it |
-| `404`  | `{"error":"wallet not found"}`                    | No such wallet for this caller                     |
-| `503`  | `{"error":"..."}`                                 | The gRPC call itself failed — auth-service unreachable |
-| `500`  | `{"error":"..."}`                                 | Query failed for any other reason                  |
+| Status | Body                                        | When                                              |
+|--------|---------------------------------------------|---------------------------------------------------|
+| `200`  | `{"wallet_id":1,"balance":"110.0000"}`      | Caller owns this wallet                            |
+| `400`  | `{"error":"wallet id must be a number"}`    | `:id` is not numeric                               |
+| `401`  | `{"error":"..."}`                           | Missing/empty bearer token, or auth-service rejected it |
+| `403`  | `{"error":"you do not own this wallet"}`    | That wallet belongs to another user                |
+| `404`  | `{"error":"wallet not found"}`              | No wallet with that `wallet_id`                    |
+| `503`  | `{"error":"..."}`                           | The gRPC call itself failed — auth-service unreachable |
+| `500`  | `{"error":"..."}`                           | Query failed for any other reason                  |
 
 `balance` is a string with exactly four decimal places, as on every other
 endpoint. Since `wallet_table.user_id` is `UNIQUE`, a user has at most one

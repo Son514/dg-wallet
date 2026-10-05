@@ -100,6 +100,10 @@ func topUpWallet(db *sql.DB, auth authv1.AuthServiceClient, c *gin.Context) {
 	wallet := models.NewWallet(userID)
 	id, balance, err := wallet.TopUpWallet(db, walletID, request.Amount)
 	if err != nil {
+		if errors.Is(err, models.ErrNotWalletOwner) {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
 		if errors.Is(err, sql.ErrNoRows) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "wallet not found"})
 			return
@@ -126,6 +130,10 @@ func checkBalance(db *sql.DB, auth authv1.AuthServiceClient, c *gin.Context) {
 	wallet := models.NewWallet(userID)
 	id, balance, err := wallet.CheckBalance(db, walletID)
 	if err != nil {
+		if errors.Is(err, models.ErrNotWalletOwner) {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
 		if errors.Is(err, sql.ErrNoRows) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "wallet not found"})
 			return

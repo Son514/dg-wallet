@@ -8,6 +8,7 @@ import (
 )
 
 var ErrWalletExists = errors.New("wallet already exists")
+var ErrNotWalletOwner = errors.New("you do not own this wallet")
 
 type Wallet struct {
 	userID  int64
@@ -47,6 +48,9 @@ func (w *Wallet) TopUpWallet(database *sql.DB, walletID int64, amount string) (i
 		w.userID,
 	).Scan(&id, &balance)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, "", w.ownershipError(database, walletID)
+		}
 		return 0, "", err
 	}
 	w.balance = balance
@@ -63,9 +67,26 @@ func (w *Wallet) CheckBalance(database *sql.DB, walletID int64) (int64, string, 
 		w.userID,
 	).Scan(&id, &balance)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, "", w.ownershipError(database, walletID)
+		}
 		return 0, "", err
 	}
 	w.balance = balance
 
 	return id, balance, nil
+}
+
+// ownershipError distinguishes a missing wallet from someone else's. It runs
+// only after an ownership-scoped query already returned sql.ErrNoRows, so any
+// row it finds here cannot belong to the caller.
+func (w *Wallet) ownershipError(database *sql.DB, walletID int64) error {
+	var ownerID int64
+	if err := database.QueryRow(
+		"SELECT user_id FROM wallet_table WHERE wallet_id = $1",
+		walletID,
+	).Scan(&ownerID); err != nil {
+		return err
+	}
+	return ErrNotWalletOwner
 }
