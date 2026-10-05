@@ -1,0 +1,1 @@
+ALTER TABLE wallet_table DROP COLUMN user_id;

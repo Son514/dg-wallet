@@ -1,0 +1,1 @@
+ALTER TABLE wallet_table ADD COLUMN user_id BIGINT NOT NULL UNIQUE;

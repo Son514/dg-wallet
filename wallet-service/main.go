@@ -2,11 +2,13 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"log"
 	"net/http"
 	"os"
 	"son514/wallet-service/database"
 	"son514/wallet-service/models"
+	"strconv"
 	"strings"
 
 	authv1 "son514/wallet-service/gen/auth"
@@ -33,9 +35,19 @@ func createWallet(db *sql.DB, auth authv1.AuthServiceClient, c *gin.Context) {
 		return
 	}
 
-	wallet := models.NewWallet()
+	userID, err := strconv.ParseInt(validated.GetUserId(), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "token has no user id"})
+		return
+	}
+
+	wallet := models.NewWallet(userID)
 	id, err := wallet.CreateWallet(db)
 	if err != nil {
+		if errors.Is(err, models.ErrWalletExists) {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

@@ -134,6 +134,7 @@ Each service keeps its own migration history, so both start at version `1`.
 | Version | Migration                       | Description                 |
 |---------|---------------------------------|-----------------------------|
 | 1       | `000001_create_wallet_table`    | Creates `wallet_table`      |
+| 2       | `000002_add_wallet_table_user_id` | Adds `user_id`, one wallet per user |
 
 `wallet_table` columns:
 
@@ -141,6 +142,12 @@ Each service keeps its own migration history, so both start at version `1`.
 |------------|----------------|---------------------------------|
 | `wallet_id`| `BIGSERIAL`    | `PRIMARY KEY`                   |
 | `balance`  | `NUMERIC(19,4)`| `NOT NULL`, `DEFAULT 0`         |
+| `user_id`  | `BIGINT`       | `NOT NULL`, `UNIQUE`            |
+
+`user_id` holds `users.id` from `auth_db`, which is why it has no foreign key —
+the two tables live in separate databases. Deleting a user leaves their wallet
+behind. The `UNIQUE` constraint is what enforces one wallet per user, and it is
+checked by the database, so concurrent creates cannot both succeed.
 
 `balance` is exact decimal money with four fractional digits. There is no
 `CHECK (balance >= 0)`, so negative balances are permitted.
@@ -220,24 +227,26 @@ calling `auth.AuthService/ValidateToken` over gRPC before the insert, so
 auth-service must be running and reachable at `AUTH_GRPC_ADDR`. A missing or
 empty bearer token is rejected without making the gRPC call.
 
-Takes no request body. The insert relies on the column defaults, so
-`wallet_id` comes from the `wallet_table_wallet_id_seq` sequence and `balance`
-is set to `0`.
+Takes no request body. `wallet_id` comes from the `wallet_table_wallet_id_seq`
+sequence, `balance` from its column default, and `user_id` from the `sub` claim
+of the validated token. One wallet per user: a second request from the same
+token is rejected.
 
-| Status | Body                     | When                                                    |
-|--------|--------------------------|---------------------------------------------------------|
-| `201`  | `{"wallet_id":1}`        | Token valid and the wallet was created                  |
-| `401`  | `{"error":"..."}`        | Missing/empty bearer token, or auth-service rejected it |
-| `503`  | `{"error":"..."}`        | The gRPC call itself failed — auth-service unreachable  |
-| `500`  | `{"error":"..."}`        | Insert failed for any reason                            |
+| Status | Body                                | When                                                    |
+|--------|-------------------------------------|---------------------------------------------------------|
+| `201`  | `{"wallet_id":1}`                   | Token valid and the wallet was created                  |
+| `401`  | `{"error":"..."}`                   | Missing/empty bearer token, or auth-service rejected it |
+| `409`  | `{"error":"wallet already exists"}` | That user already has a wallet                          |
+| `503`  | `{"error":"..."}`                   | The gRPC call itself failed — auth-service unreachable  |
+| `500`  | `{"error":"..."}`                   | Insert failed for any other reason                      |
 
 A `401` body carries the reason auth-service reported, e.g. `token is expired` or
-`token is malformed`. Validation is cryptographic only, and the authenticated
-user is not recorded — `wallet_table` has no owner column, so the token gates the
-request but is not stored against the wallet.
+`token is malformed`.
 
 `balance` is not returned. To clear any wallets created while testing, run
-`make down` then `make up` in `wallet-service/`.
+`make down` then `make up` in `wallet-service/`; note that migration 2 adds
+`user_id` as `NOT NULL`, so dropping back to version 1 is fine but re-applying
+it requires the table to be empty.
 
 ## gRPC
 
@@ -374,7 +383,9 @@ against a stale contract.
     │   ├── db.go
     │   └── migrations
     │       ├── 000001_create_wallet_table.up.sql
-    │       └── 000001_create_wallet_table.down.sql
+    │       ├── 000001_create_wallet_table.down.sql
+    │       ├── 000002_add_wallet_table_user_id.up.sql
+    │       └── 000002_add_wallet_table_user_id.down.sql
     ├── gen
     │   └── auth
     │       ├── auth.pb.go
