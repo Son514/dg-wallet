@@ -38,6 +38,7 @@ Read from the `.env` in each service's own directory.
 | `DB_NAME`    | Database name                      | Yes      |
 | `JWT_SECRET` | HS256 signing key for JWTs         | auth-service only |
 | `GRPC_PORT`  | Port for the gRPC server           | auth-service only, optional |
+| `AUTH_GRPC_ADDR` | auth-service gRPC address      | wallet-service only, optional |
 
 `auth-service/.env` points at `auth_db`; `wallet-service/.env` points at
 `wallet_db`. The two databases are separate, so there are no cross-database
@@ -45,6 +46,10 @@ foreign keys between them.
 
 Both services connect at startup via `ConnectDB` and `log.Fatal` if the database
 is unreachable, so the `DB_*` values must be correct before running either one.
+
+`AUTH_GRPC_ADDR` defaults to `localhost:50051`, which is where auth-service
+listens. wallet-service reads it after `ConnectDB` has loaded `.env`, so the
+value only takes effect if the database connection is established first.
 
 Generate a real secret with `openssl rand -base64 32`. Anyone holding it can mint
 valid tokens, so never commit `.env`.
@@ -210,19 +215,33 @@ Tokens are signed with HS256 using `JWT_SECRET` and are valid for 1 hour. Claims
 
 #### POST /wallets
 
+Requires an `Authorization: Bearer <jwt>` header. The token is validated by
+calling `auth.AuthService/ValidateToken` over gRPC before the insert, so
+auth-service must be running and reachable at `AUTH_GRPC_ADDR`. A missing or
+empty bearer token is rejected without making the gRPC call.
+
 Takes no request body. The insert relies on the column defaults, so
 `wallet_id` comes from the `wallet_table_wallet_id_seq` sequence and `balance`
 is set to `0`.
 
-| Status | Body                | When                                    |
-|--------|---------------------|-----------------------------------------|
-| `201`  | `{"wallet_id":1}`   | Created; the new `wallet_id` is echoed |
-| `500`  | `{"error":"..."}`    | Insert failed for any reason            |
+| Status | Body                     | When                                                    |
+|--------|--------------------------|---------------------------------------------------------|
+| `201`  | `{"wallet_id":1}`        | Token valid and the wallet was created                  |
+| `401`  | `{"error":"..."}`        | Missing/empty bearer token, or auth-service rejected it |
+| `503`  | `{"error":"..."}`        | The gRPC call itself failed — auth-service unreachable  |
+| `500`  | `{"error":"..."}`        | Insert failed for any reason                            |
+
+A `401` body carries the reason auth-service reported, e.g. `token is expired` or
+`token is malformed`. Validation is cryptographic only, and the authenticated
+user is not recorded — `wallet_table` has no owner column, so the token gates the
+request but is not stored against the wallet.
 
 `balance` is not returned. To clear any wallets created while testing, run
 `make down` then `make up` in `wallet-service/`.
 
 ## gRPC
+
+### auth-service server
 
 The service exposes `auth.AuthService/ValidateToken` over plaintext gRPC on
 `GRPC_PORT` (default `50051`), started by `main` in a goroutine alongside the HTTP
@@ -249,7 +268,7 @@ Requires `protoc`, `protoc-gen-go`, and `protoc-gen-go-grpc` on `PATH`.
 `make proto` does not delete stale output, so removing a message from a proto
 leaves its old `.pb.go` behind — delete it by hand.
 
-### ValidateToken
+#### ValidateToken
 
 ```bash
 grpcurl -plaintext -import-path proto -proto auth.proto \
@@ -286,6 +305,31 @@ Note that proto3 omits default values, so a rejected token's response contains n
 
 Validation is cryptographic only — signature and expiry. It does not check that
 the user still exists in the database.
+
+### wallet-service client
+
+wallet-service consumes the same RPC. The dial and the call wrapper live in
+`grpc/client.go`; `main` dials `AUTH_GRPC_ADDR` once and shares the resulting
+client with the handlers.
+
+`NewClient` uses `grpc.NewClient` with insecure credentials, matching auth-service's
+plaintext listener. It is lazy — it does not connect on startup, so auth-service
+being down does not stop wallet-service from booting. The first RPC fails instead,
+and `ValidateToken` wraps each call in a 3s context timeout so a hung
+auth-service cannot hang the HTTP request.
+
+The generated client in `gen/auth/` is a **separate copy** from auth-service's,
+produced from `../auth-service/proto/auth.proto`:
+
+```bash
+make proto
+```
+
+Run from `wallet-service/`. An `Mauth.proto` flag overrides `go_package`, since
+the schema declares `son514/auth-service/gen/auth;authv1`. The override is
+per-file, so adding a second proto means adding another flag. Regenerate here as
+well as in auth-service whenever the schema changes, or wallet-service compiles
+against a stale contract.
 
 ## Project Structure
 
@@ -331,6 +375,12 @@ the user still exists in the database.
     │   └── migrations
     │       ├── 000001_create_wallet_table.up.sql
     │       └── 000001_create_wallet_table.down.sql
+    ├── gen
+    │   └── auth
+    │       ├── auth.pb.go
+    │       └── auth_grpc.pb.go
+    ├── grpc
+    │   └── client.go
     └── models
         └── wallet.go
 ```
