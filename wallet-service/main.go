@@ -1,16 +1,25 @@
 package main
 
 import (
+	"database/sql"
 	"log"
 	"net/http"
 
 	"son514/wallet-service/database"
+	"son514/wallet-service/models"
 
 	"github.com/gin-gonic/gin"
 )
 
-func createWallet(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"method": "POST"})
+func createWallet(db *sql.DB, c *gin.Context) {
+	wallet := models.NewWallet()
+	id, err := wallet.CreateWallet(db)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"wallet_id": id})
 }
 
 func main() {
@@ -22,6 +31,8 @@ func main() {
 
 	router := gin.Default()
 
-	router.POST("/wallets", createWallet)
+	router.POST("/wallets", func(c *gin.Context) {
+		createWallet(db, c)
+	})
 	router.Run()
 }

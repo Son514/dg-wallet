@@ -142,6 +142,8 @@ Each service keeps its own migration history, so both start at version `1`.
 
 ## Endpoints
 
+### auth-service
+
 | Method | Path      | Description       |
 |--------|-----------|-------------------|
 | POST   | `/users`  | Create a new user |
@@ -199,6 +201,26 @@ Tokens are signed with HS256 using `JWT_SECRET` and are valid for 1 hour. Claims
   "exp": 1791105369
 }
 ```
+
+### wallet-service
+
+| Method | Path       | Description         |
+|--------|------------|---------------------|
+| POST   | `/wallets` | Create a new wallet |
+
+#### POST /wallets
+
+Takes no request body. The insert relies on the column defaults, so
+`wallet_id` comes from the `wallet_table_wallet_id_seq` sequence and `balance`
+is set to `0`.
+
+| Status | Body                | When                                    |
+|--------|---------------------|-----------------------------------------|
+| `201`  | `{"wallet_id":1}`   | Created; the new `wallet_id` is echoed |
+| `500`  | `{"error":"..."}`    | Insert failed for any reason            |
+
+`balance` is not returned. To clear any wallets created while testing, run
+`make down` then `make up` in `wallet-service/`.
 
 ## gRPC
 
@@ -304,9 +326,11 @@ the user still exists in the database.
     ├── go.mod
     ├── go.sum
     ├── main.go
-    └── database
-        ├── db.go
-        └── migrations
-            ├── 000001_create_wallet_table.up.sql
-            └── 000001_create_wallet_table.down.sql
+    ├── database
+    │   ├── db.go
+    │   └── migrations
+    │       ├── 000001_create_wallet_table.up.sql
+    │       └── 000001_create_wallet_table.down.sql
+    └── models
+        └── wallet.go
 ```
