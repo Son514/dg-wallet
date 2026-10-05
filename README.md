@@ -150,7 +150,9 @@ behind. The `UNIQUE` constraint is what enforces one wallet per user, and it is
 checked by the database, so concurrent creates cannot both succeed.
 
 `balance` is exact decimal money with four fractional digits. There is no
-`CHECK (balance >= 0)`, so negative balances are permitted.
+`CHECK (balance >= 0)`, so negative balances are permitted. The maximum stored
+value is `99999999999999.9999`; anything larger overflows and Postgres raises
+`numeric field overflow`.
 
 ## Endpoints
 
@@ -216,9 +218,10 @@ Tokens are signed with HS256 using `JWT_SECRET` and are valid for 1 hour. Claims
 
 ### wallet-service
 
-| Method | Path       | Description         |
-|--------|------------|---------------------|
-| POST   | `/wallets` | Create a new wallet |
+| Method | Path                     | Description               |
+|--------|--------------------------|---------------------------|
+| POST   | `/wallets`               | Create a new wallet       |
+| POST   | `/wallets/:id/topup`     | Add funds to a wallet     |
 
 #### POST /wallets
 
@@ -253,6 +256,49 @@ To clear any wallets created while testing, run `make down` then `make up` in
 `wallet-service/`; note that migration 2 adds `user_id` as `NOT NULL`, so
 dropping back to version 1 is fine but re-applying it requires the table to be
 empty.
+
+#### POST /wallets/:id/topup
+
+Adds to an existing wallet's balance. Same `Authorization: Bearer <jwt>`
+requirement and same gRPC validation as `POST /wallets`.
+
+Request body:
+
+```json
+{
+  "amount": "100.00"
+}
+```
+
+`:id` is the `wallet_id`. Ownership is enforced in the `UPDATE ... WHERE
+wallet_id = $2 AND user_id = $3` clause, where `$3` is the `sub` claim of the
+validated token, so matching and authorizing happen in one statement with no
+window between a check and the write. A wallet that does not exist, or that
+belongs to someone else, is reported identically as `404` — the endpoint cannot
+be used to discover which `wallet_id` values exist.
+
+`amount` must be greater than zero. The balance is updated with
+`balance = balance + $1::numeric`, which is additive and atomic, so concurrent
+top-ups cannot overwrite each other.
+
+| Status | Body                                | When                                              |
+|--------|-------------------------------------|---------------------------------------------------|
+| `200`  | `{"wallet_id":1,"balance":"100.0000"}` | Top-up applied; `balance` is the new total     |
+| `400`  | `{"error":"..."}`                   | `:id` not numeric, body invalid, or `amount <= 0`  |
+| `401`  | `{"error":"..."}`                   | Missing/empty bearer token, or auth-service rejected it |
+| `404`  | `{"error":"wallet not found"}`      | No such wallet for this caller                     |
+| `503`  | `{"error":"..."}`                   | The gRPC call itself failed — auth-service unreachable |
+| `500`  | `{"error":"..."}`                   | Update failed for any other reason                 |
+
+`balance` in the response is the **new total**, not the amount added.
+
+Two caveats follow from the column being `NUMERIC(19,4)`:
+
+- An amount with more than four decimal places is **silently rounded** by
+  Postgres, so `1.23456` adds `1.2346`. Pass at most four places.
+- Because there is still no `CHECK (balance >= 0)`, the database permits
+  negative balances. The `amount > 0` check is the only thing preventing a
+  withdrawal.
 
 ## gRPC
 

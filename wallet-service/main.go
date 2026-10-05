@@ -1,5 +1,7 @@
 package main
 
+// TODO: US-4 — Top Up Wallet
+
 import (
 	"database/sql"
 	"errors"
@@ -17,27 +19,43 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func createWallet(db *sql.DB, auth authv1.AuthServiceClient, c *gin.Context) {
+type topUpRequest struct {
+	Amount string `json:"amount"`
+}
+
+// authenticatedUserID resolves the caller's id from the bearer token. On
+// failure it writes the response itself and reports false, so callers just
+// return.
+func authenticatedUserID(auth authv1.AuthServiceClient, c *gin.Context) (int64, bool) {
 	token, found := strings.CutPrefix(c.GetHeader("Authorization"), "Bearer ")
 	if !found || token == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing bearer token"})
-		return
+		return 0, false
 	}
 
 	validated, err := grpcclient.ValidateToken(c.Request.Context(), auth, token)
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
-		return
+		return 0, false
 	}
 
 	if !validated.GetValid() {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": validated.GetReason()})
-		return
+		return 0, false
 	}
 
 	userID, err := strconv.ParseInt(validated.GetUserId(), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "token has no user id"})
+		return 0, false
+	}
+
+	return userID, true
+}
+
+func createWallet(db *sql.DB, auth authv1.AuthServiceClient, c *gin.Context) {
+	userID, ok := authenticatedUserID(auth, c)
+	if !ok {
 		return
 	}
 
@@ -53,6 +71,44 @@ func createWallet(db *sql.DB, auth authv1.AuthServiceClient, c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{"wallet_id": id, "balance": balance})
+}
+
+func topUpWallet(db *sql.DB, auth authv1.AuthServiceClient, c *gin.Context) {
+	walletID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "wallet id must be a number"})
+		return
+	}
+
+	userID, ok := authenticatedUserID(auth, c)
+	if !ok {
+		return
+	}
+
+	var request topUpRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	amount, err := strconv.ParseFloat(request.Amount, 64)
+	if err != nil || amount <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "amount must be greater than zero"})
+		return
+	}
+
+	wallet := models.NewWallet(userID)
+	id, balance, err := wallet.TopUpWallet(db, walletID, request.Amount)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "wallet not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"wallet_id": id, "balance": balance})
 }
 
 func main() {
@@ -76,9 +132,15 @@ func main() {
 	auth := authv1.NewAuthServiceClient(conn)
 
 	router := gin.Default()
-
+	/* --- Create a Wallet --- */
 	router.POST("/wallets", func(c *gin.Context) {
 		createWallet(db, auth, c)
 	})
+
+	/* --- Top-up to Wallet --- */
+	router.POST("/wallets/:id/topup", func(c *gin.Context) {
+		topUpWallet(db, auth, c)
+	})
+
 	router.Run(":8081")
 }

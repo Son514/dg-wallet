@@ -36,3 +36,20 @@ func (w *Wallet) CreateWallet(database *sql.DB) (int64, string, error) {
 
 	return id, balance, nil
 }
+
+func (w *Wallet) TopUpWallet(database *sql.DB, walletID int64, amount string) (int64, string, error) {
+	var id int64
+	var balance string
+	err := database.QueryRow(
+		"UPDATE wallet_table SET balance = balance + $1::numeric WHERE wallet_id = $2 AND user_id = $3 RETURNING wallet_id, balance",
+		amount,
+		walletID,
+		w.userID,
+	).Scan(&id, &balance)
+	if err != nil {
+		return 0, "", err
+	}
+	w.balance = balance
+
+	return id, balance, nil
+}
