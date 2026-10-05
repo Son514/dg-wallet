@@ -222,6 +222,7 @@ Tokens are signed with HS256 using `JWT_SECRET` and are valid for 1 hour. Claims
 |--------|--------------------------|---------------------------|
 | POST   | `/wallets`               | Create a new wallet       |
 | POST   | `/wallets/:id/topup`     | Add funds to a wallet     |
+| GET    | `/wallets/:id`           | Check a wallet's balance  |
 
 #### POST /wallets
 
@@ -299,6 +300,33 @@ Two caveats follow from the column being `NUMERIC(19,4)`:
 - Because there is still no `CHECK (balance >= 0)`, the database permits
   negative balances. The `amount > 0` check is the only thing preventing a
   withdrawal.
+
+#### GET /wallets/:id
+
+Returns a wallet's current balance. Takes no request body and makes no writes.
+
+Requires an `Authorization: Bearer <jwt>` header, validated over gRPC exactly as
+in the other two endpoints.
+
+Ownership is enforced with `WHERE wallet_id = $1 AND user_id = $2`, where `$2` is
+the `sub` claim of the validated token. A wallet that does not exist, or that
+belongs to someone else, returns the same `404`, so the endpoint cannot be used
+to discover which `wallet_id` values exist.
+
+| Status | Body                                              | When                                              |
+|--------|---------------------------------------------------|---------------------------------------------------|
+| `200`  | `{"wallet_id":1,"balance":"110.0000"}`            | Caller owns this wallet                            |
+| `400`  | `{"error":"wallet id must be a number"}`          | `:id` is not numeric                               |
+| `401`  | `{"error":"..."}`                                 | Missing/empty bearer token, or auth-service rejected it |
+| `404`  | `{"error":"wallet not found"}`                    | No such wallet for this caller                     |
+| `503`  | `{"error":"..."}`                                 | The gRPC call itself failed — auth-service unreachable |
+| `500`  | `{"error":"..."}`                                 | Query failed for any other reason                  |
+
+`balance` is a string with exactly four decimal places, as on every other
+endpoint. Since `wallet_table.user_id` is `UNIQUE`, a user has at most one
+wallet, so `:id` is redundant in practice — `GET /wallets` without an id would
+address the same single wallet. The id is kept in the path and echoed back so
+all three wallet endpoints share one response shape.
 
 ## gRPC
 

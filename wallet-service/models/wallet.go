@@ -53,3 +53,19 @@ func (w *Wallet) TopUpWallet(database *sql.DB, walletID int64, amount string) (i
 
 	return id, balance, nil
 }
+
+func (w *Wallet) CheckBalance(database *sql.DB, walletID int64) (int64, string, error) {
+	var id int64
+	var balance string
+	err := database.QueryRow(
+		"SELECT wallet_id, balance FROM wallet_table WHERE wallet_id = $1 AND user_id = $2",
+		walletID,
+		w.userID,
+	).Scan(&id, &balance)
+	if err != nil {
+		return 0, "", err
+	}
+	w.balance = balance
+
+	return id, balance, nil
+}

@@ -1,6 +1,6 @@
 package main
 
-// TODO: US-4 — Top Up Wallet
+// TODO: US-5 — Check Balance
 
 import (
 	"database/sql"
@@ -111,6 +111,32 @@ func topUpWallet(db *sql.DB, auth authv1.AuthServiceClient, c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"wallet_id": id, "balance": balance})
 }
 
+func checkBalance(db *sql.DB, auth authv1.AuthServiceClient, c *gin.Context) {
+	walletID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "wallet id must be a number"})
+		return
+	}
+
+	userID, ok := authenticatedUserID(auth, c)
+	if !ok {
+		return
+	}
+
+	wallet := models.NewWallet(userID)
+	id, balance, err := wallet.CheckBalance(db, walletID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "wallet not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"wallet_id": id, "balance": balance})
+}
+
 func main() {
 	db, err := database.ConnectDB()
 	if err != nil {
@@ -140,6 +166,11 @@ func main() {
 	/* --- Top-up to Wallet --- */
 	router.POST("/wallets/:id/topup", func(c *gin.Context) {
 		topUpWallet(db, auth, c)
+	})
+
+	/* --- Check Balance --- */
+	router.GET("/wallets/:id", func(c *gin.Context) {
+		checkBalance(db, auth, c)
 	})
 
 	router.Run(":8081")
