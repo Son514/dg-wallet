@@ -42,7 +42,7 @@ func createWallet(db *sql.DB, auth authv1.AuthServiceClient, c *gin.Context) {
 	}
 
 	wallet := models.NewWallet(userID)
-	id, err := wallet.CreateWallet(db)
+	id, balance, err := wallet.CreateWallet(db)
 	if err != nil {
 		if errors.Is(err, models.ErrWalletExists) {
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
@@ -52,7 +52,7 @@ func createWallet(db *sql.DB, auth authv1.AuthServiceClient, c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"wallet_id": id})
+	c.JSON(http.StatusCreated, gin.H{"wallet_id": id, "balance": balance})
 }
 
 func main() {

@@ -11,26 +11,28 @@ var ErrWalletExists = errors.New("wallet already exists")
 
 type Wallet struct {
 	userID  int64
-	balance float64
+	balance string
 }
 
 func NewWallet(userID int64) *Wallet {
 	return &Wallet{userID: userID}
 }
 
-func (w *Wallet) CreateWallet(database *sql.DB) (int64, error) {
+func (w *Wallet) CreateWallet(database *sql.DB) (int64, string, error) {
 	var id int64
+	var balance string
 	err := database.QueryRow(
-		"INSERT INTO wallet_table (user_id) VALUES ($1) RETURNING wallet_id",
+		"INSERT INTO wallet_table (user_id) VALUES ($1) RETURNING wallet_id, balance",
 		w.userID,
-	).Scan(&id)
+	).Scan(&id, &balance)
 	if err != nil {
 		var pqErr *pq.Error
 		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
-			return 0, ErrWalletExists
+			return 0, "", ErrWalletExists
 		}
-		return 0, err
+		return 0, "", err
 	}
+	w.balance = balance
 
-	return id, nil
+	return id, balance, nil
 }

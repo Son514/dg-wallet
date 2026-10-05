@@ -232,21 +232,27 @@ sequence, `balance` from its column default, and `user_id` from the `sub` claim
 of the validated token. One wallet per user: a second request from the same
 token is rejected.
 
-| Status | Body                                | When                                                    |
-|--------|-------------------------------------|---------------------------------------------------------|
-| `201`  | `{"wallet_id":1}`                   | Token valid and the wallet was created                  |
-| `401`  | `{"error":"..."}`                   | Missing/empty bearer token, or auth-service rejected it |
-| `409`  | `{"error":"wallet already exists"}` | That user already has a wallet                          |
-| `503`  | `{"error":"..."}`                   | The gRPC call itself failed — auth-service unreachable  |
-| `500`  | `{"error":"..."}`                   | Insert failed for any other reason                      |
+| Status | Body                                              | When                                                    |
+|--------|---------------------------------------------------|---------------------------------------------------------|
+| `201`  | `{"wallet_id":1,"balance":"0.0000"}`              | Token valid and the wallet was created                  |
+| `401`  | `{"error":"..."}`                                 | Missing/empty bearer token, or auth-service rejected it |
+| `409`  | `{"error":"wallet already exists"}`               | That user already has a wallet                          |
+| `503`  | `{"error":"..."}`                                 | The gRPC call itself failed — auth-service unreachable  |
+| `500`  | `{"error":"..."}`                                 | Insert failed for any other reason                      |
 
 A `401` body carries the reason auth-service reported, e.g. `token is expired` or
 `token is malformed`.
 
-`balance` is not returned. To clear any wallets created while testing, run
-`make down` then `make up` in `wallet-service/`; note that migration 2 adds
-`user_id` as `NOT NULL`, so dropping back to version 1 is fine but re-applying
-it requires the table to be empty.
+`balance` is returned as a JSON **string**, not a number, because `NUMERIC(19,4)`
+holds up to 19 significant digits and a float64 only carries roughly 15-17, so
+the decimal text is passed through untouched. Postgres preserves the declared
+scale, so the value always has exactly four decimal places. Clients must parse
+it before doing arithmetic.
+
+To clear any wallets created while testing, run `make down` then `make up` in
+`wallet-service/`; note that migration 2 adds `user_id` as `NOT NULL`, so
+dropping back to version 1 is fine but re-applying it requires the table to be
+empty.
 
 ## gRPC
 
