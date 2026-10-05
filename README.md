@@ -43,6 +43,9 @@ Read from the `.env` in each service's own directory.
 `wallet_db`. The two databases are separate, so there are no cross-database
 foreign keys between them.
 
+Both services connect at startup via `ConnectDB` and `log.Fatal` if the database
+is unreachable, so the `DB_*` values must be correct before running either one.
+
 Generate a real secret with `openssl rand -base64 32`. Anyone holding it can mint
 valid tokens, so never commit `.env`.
 
@@ -302,6 +305,7 @@ the user still exists in the database.
     ├── go.sum
     ├── main.go
     └── database
+        ├── db.go
         └── migrations
             ├── 000001_create_wallet_table.up.sql
             └── 000001_create_wallet_table.down.sql
