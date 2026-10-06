@@ -1,6 +1,6 @@
 package main
 
-// TODO: Transfer Between Wallets
+// TODO: US-7 — Ledger Entries (Double-Entry)
 
 import (
 	"database/sql"

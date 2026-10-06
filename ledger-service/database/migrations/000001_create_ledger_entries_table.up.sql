@@ -1,0 +1,7 @@
+CREATE TABLE ledger_entries (
+  id BIGSERIAL PRIMARY KEY,
+  wallet_id BIGINT NOT NULL,
+  amount NUMERIC(19,4) NOT NULL,
+  type VARCHAR(20) NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);

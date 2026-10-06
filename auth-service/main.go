@@ -1,15 +1,13 @@
 package main
 
-// TODO: US-3 — Create a Wallet
-
 import (
 	"log"
 	"net"
 	"os"
-
 	"son514/auth-service/database/db"
-	grpcserver "son514/auth-service/grpc"
 	"son514/auth-service/routes"
+
+	grpcserver "son514/auth-service/grpc"
 
 	"github.com/gin-gonic/gin"
 )
