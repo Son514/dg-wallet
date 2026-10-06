@@ -37,8 +37,9 @@ Read from the `.env` in each service's own directory.
 | `DB_PASS`    | PostgreSQL password                | Yes      |
 | `DB_NAME`    | Database name                      | Yes      |
 | `JWT_SECRET` | HS256 signing key for JWTs         | auth-service only |
-| `GRPC_PORT`  | Port for the gRPC server           | auth-service only, optional |
+| `GRPC_PORT`  | Port for the gRPC server           | auth-service, ledger-service, optional |
 | `AUTH_GRPC_ADDR` | auth-service gRPC address      | wallet-service only, optional |
+| `LEDGER_GRPC_ADDR` | ledger-service gRPC address  | wallet-service only, optional |
 
 `auth-service/.env` points at `auth_db`; `wallet-service/.env` points at
 `wallet_db`. The two databases are separate, so there are no cross-database
@@ -50,6 +51,8 @@ is unreachable, so the `DB_*` values must be correct before running either one.
 `AUTH_GRPC_ADDR` defaults to `localhost:50051`, which is where auth-service
 listens. wallet-service reads it after `ConnectDB` has loaded `.env`, so the
 value only takes effect if the database connection is established first.
+`LEDGER_GRPC_ADDR` defaults to `localhost:50052`, which is where ledger-service
+listens.
 
 Generate a real secret with `openssl rand -base64 32`. Anyone holding it can mint
 valid tokens, so never commit `.env`.

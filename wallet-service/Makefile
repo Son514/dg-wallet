@@ -5,8 +5,10 @@ MIGRATION_URL := postgres://$$DB_USER:$$DB_PASS@$$DB_HOST:$$DB_PORT/$$DB_NAME?ss
 
 PROTO_DIR  ?= ../auth-service/proto
 PROTO_FILE := $(PROTO_DIR)/auth.proto
+LEDGER_PROTO ?= proto/ledger.proto
 MODULE     := $(shell go list -m)
 GEN_PKG    := $(MODULE)/gen/auth;authv1
+LEDGER_GEN_PKG := $(MODULE)/gen/ledger;ledgerv1
 
 .PHONY: up down down-all version proto
 
@@ -31,3 +33,7 @@ proto:
 		--go_out=. --go_opt=module=$(MODULE) --go_opt=Mauth.proto="$(GEN_PKG)" \
 		--go-grpc_out=. --go-grpc_opt=module=$(MODULE) --go-grpc_opt=Mauth.proto="$(GEN_PKG)" \
 		$(PROTO_FILE)
+	protoc -I proto \
+		--go_out=. --go_opt=module=$(MODULE) --go_opt=Mledger.proto="$(LEDGER_GEN_PKG)" \
+		--go-grpc_out=. --go-grpc_opt=module=$(MODULE) --go-grpc_opt=Mledger.proto="$(LEDGER_GEN_PKG)" \
+		$(LEDGER_PROTO)

@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	authv1 "son514/wallet-service/gen/auth"
+	ledgerv1 "son514/wallet-service/gen/ledger"
 	grpcclient "son514/wallet-service/grpc"
 
 	"github.com/gin-gonic/gin"
@@ -79,7 +80,7 @@ func createWallet(db *sql.DB, auth authv1.AuthServiceClient, c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"wallet_id": id, "balance": balance})
 }
 
-func topUpWallet(db *sql.DB, auth authv1.AuthServiceClient, c *gin.Context) {
+func topUpWallet(db *sql.DB, auth authv1.AuthServiceClient, ledger ledgerv1.LedgerServiceClient, c *gin.Context) {
 	walletID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "wallet id must be a number"})
@@ -114,6 +115,15 @@ func topUpWallet(db *sql.DB, auth authv1.AuthServiceClient, c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "wallet not found"})
 			return
 		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	_, err = grpcclient.CreateLedgerEntries(c.Request.Context(), ledger, []*ledgerv1.LedgerEntry{
+		{WalletId: 0, Amount: "-" + request.Amount, Type: "topup"},
+		{WalletId: id, Amount: request.Amount, Type: "topup"},
+	})
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -220,6 +230,19 @@ func main() {
 
 	auth := authv1.NewAuthServiceClient(conn)
 
+	ledgerAddr := os.Getenv("LEDGER_GRPC_ADDR")
+	if ledgerAddr == "" {
+		ledgerAddr = "localhost:50052"
+	}
+
+	ledgerConn, err := grpcclient.NewClient(ledgerAddr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer ledgerConn.Close()
+
+	ledger := ledgerv1.NewLedgerServiceClient(ledgerConn)
+
 	router := gin.Default()
 	/* --- Create a Wallet --- */
 	router.POST("/wallets", func(c *gin.Context) {
@@ -228,7 +251,7 @@ func main() {
 
 	/* --- Top-up to Wallet --- */
 	router.POST("/wallets/:id/topup", func(c *gin.Context) {
-		topUpWallet(db, auth, c)
+		topUpWallet(db, auth, ledger, c)
 	})
 
 	/* --- Check Balance --- */
