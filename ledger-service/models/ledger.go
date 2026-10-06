@@ -65,6 +65,8 @@ func CreateLedgerEntries(db *sql.DB, entries []LedgerEntry) ([]int64, error) {
 		return nil, err
 	}
 
+	// The query above fetched ids newest-first; reverse them so the
+	// response lists entry ids in the same order as the input entries.
 	for i, j := 0, len(ids)-1; i < j; i, j = i+1, j-1 {
 		ids[i], ids[j] = ids[j], ids[i]
 	}
