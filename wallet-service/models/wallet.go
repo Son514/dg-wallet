@@ -11,6 +11,7 @@ var (
 	ErrWalletExists        = errors.New("wallet already exists")
 	ErrNotWalletOwner      = errors.New("you do not own this wallet")
 	ErrInsufficientBalance = errors.New("insufficient balance")
+	ErrTransferToSelf      = errors.New("cannot transfer to self")
 )
 
 type Wallet struct {
@@ -81,6 +82,9 @@ func (w *Wallet) CheckBalance(database *sql.DB, walletID int64) (int64, string, 
 }
 
 func (w *Wallet) TransferMoney(database *sql.DB, fromWalletID int64, toWalletID int64, amount string) (int64, string, error) {
+	if fromWalletID == toWalletID {
+		return 0, "", ErrTransferToSelf
+	}
 	var id int64
 	var balance string
 	err := database.QueryRow(

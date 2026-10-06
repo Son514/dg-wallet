@@ -169,9 +169,18 @@ func transferMoney(db *sql.DB, auth authv1.AuthServiceClient, c *gin.Context) {
 		return
 	}
 
+	if request.FromWalletID == request.ToWalletID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot transfer to self"})
+		return
+	}
+
 	wallet := models.NewWallet(userID)
 	id, balance, err := wallet.TransferMoney(db, request.FromWalletID, request.ToWalletID, request.Amount)
 	if err != nil {
+		if errors.Is(err, models.ErrTransferToSelf) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		if errors.Is(err, models.ErrNotWalletOwner) {
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 			return
