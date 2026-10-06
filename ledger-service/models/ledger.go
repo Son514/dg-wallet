@@ -2,15 +2,42 @@ package models
 
 import (
 	"database/sql"
+	"time"
 
 	"github.com/lib/pq"
 )
 
 type LedgerEntry struct {
-	ID       int64
-	WalletID int64
-	Amount   string
-	Type     string
+	ID        int64
+	WalletID  int64
+	Amount    string
+	Type      string
+	CreatedAt time.Time
+}
+
+func TransactionHistory(db *sql.DB, walletID int64) ([]LedgerEntry, error) {
+	rows, err := db.Query(
+		"SELECT id, wallet_id, amount::text, type, created_at FROM ledger_entries WHERE wallet_id = $1 ORDER BY created_at DESC, id DESC",
+		walletID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	entries := make([]LedgerEntry, 0)
+	for rows.Next() {
+		var entry LedgerEntry
+		if err := rows.Scan(&entry.ID, &entry.WalletID, &entry.Amount, &entry.Type, &entry.CreatedAt); err != nil {
+			return nil, err
+		}
+		entries = append(entries, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return entries, nil
 }
 
 func CreateLedgerEntries(db *sql.DB, entries []LedgerEntry) ([]int64, error) {

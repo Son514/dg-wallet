@@ -9,6 +9,7 @@ package ledgerv1
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -169,11 +170,167 @@ func (x *CreateLedgerEntriesResponse) GetEntryIds() []int64 {
 	return nil
 }
 
+type TransactionHistoryRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	WalletId      int64                  `protobuf:"varint,1,opt,name=wallet_id,json=walletId,proto3" json:"wallet_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TransactionHistoryRequest) Reset() {
+	*x = TransactionHistoryRequest{}
+	mi := &file_ledger_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TransactionHistoryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TransactionHistoryRequest) ProtoMessage() {}
+
+func (x *TransactionHistoryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ledger_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TransactionHistoryRequest.ProtoReflect.Descriptor instead.
+func (*TransactionHistoryRequest) Descriptor() ([]byte, []int) {
+	return file_ledger_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *TransactionHistoryRequest) GetWalletId() int64 {
+	if x != nil {
+		return x.WalletId
+	}
+	return 0
+}
+
+type TransactionHistoryEntry struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	EntryId       int64                  `protobuf:"varint,1,opt,name=entry_id,json=entryId,proto3" json:"entry_id,omitempty"`
+	Amount        string                 `protobuf:"bytes,2,opt,name=amount,proto3" json:"amount,omitempty"`
+	Type          string                 `protobuf:"bytes,3,opt,name=type,proto3" json:"type,omitempty"`
+	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TransactionHistoryEntry) Reset() {
+	*x = TransactionHistoryEntry{}
+	mi := &file_ledger_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TransactionHistoryEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TransactionHistoryEntry) ProtoMessage() {}
+
+func (x *TransactionHistoryEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_ledger_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TransactionHistoryEntry.ProtoReflect.Descriptor instead.
+func (*TransactionHistoryEntry) Descriptor() ([]byte, []int) {
+	return file_ledger_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *TransactionHistoryEntry) GetEntryId() int64 {
+	if x != nil {
+		return x.EntryId
+	}
+	return 0
+}
+
+func (x *TransactionHistoryEntry) GetAmount() string {
+	if x != nil {
+		return x.Amount
+	}
+	return ""
+}
+
+func (x *TransactionHistoryEntry) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *TransactionHistoryEntry) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+type TransactionHistoryResponse struct {
+	state         protoimpl.MessageState     `protogen:"open.v1"`
+	Entries       []*TransactionHistoryEntry `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TransactionHistoryResponse) Reset() {
+	*x = TransactionHistoryResponse{}
+	mi := &file_ledger_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TransactionHistoryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TransactionHistoryResponse) ProtoMessage() {}
+
+func (x *TransactionHistoryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_ledger_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TransactionHistoryResponse.ProtoReflect.Descriptor instead.
+func (*TransactionHistoryResponse) Descriptor() ([]byte, []int) {
+	return file_ledger_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *TransactionHistoryResponse) GetEntries() []*TransactionHistoryEntry {
+	if x != nil {
+		return x.Entries
+	}
+	return nil
+}
+
 var File_ledger_proto protoreflect.FileDescriptor
 
 const file_ledger_proto_rawDesc = "" +
 	"\n" +
-	"\fledger.proto\x12\x06ledger\"V\n" +
+	"\fledger.proto\x12\x06ledger\x1a\x1fgoogle/protobuf/timestamp.proto\"V\n" +
 	"\vLedgerEntry\x12\x1b\n" +
 	"\twallet_id\x18\x01 \x01(\x03R\bwalletId\x12\x16\n" +
 	"\x06amount\x18\x02 \x01(\tR\x06amount\x12\x12\n" +
@@ -181,9 +338,20 @@ const file_ledger_proto_rawDesc = "" +
 	"\x1aCreateLedgerEntriesRequest\x12-\n" +
 	"\aentries\x18\x01 \x03(\v2\x13.ledger.LedgerEntryR\aentries\":\n" +
 	"\x1bCreateLedgerEntriesResponse\x12\x1b\n" +
-	"\tentry_ids\x18\x01 \x03(\x03R\bentryIds2o\n" +
+	"\tentry_ids\x18\x01 \x03(\x03R\bentryIds\"8\n" +
+	"\x19TransactionHistoryRequest\x12\x1b\n" +
+	"\twallet_id\x18\x01 \x01(\x03R\bwalletId\"\x9b\x01\n" +
+	"\x17TransactionHistoryEntry\x12\x19\n" +
+	"\bentry_id\x18\x01 \x01(\x03R\aentryId\x12\x16\n" +
+	"\x06amount\x18\x02 \x01(\tR\x06amount\x12\x12\n" +
+	"\x04type\x18\x03 \x01(\tR\x04type\x129\n" +
+	"\n" +
+	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"W\n" +
+	"\x1aTransactionHistoryResponse\x129\n" +
+	"\aentries\x18\x01 \x03(\v2\x1f.ledger.TransactionHistoryEntryR\aentries2\xcc\x01\n" +
 	"\rLedgerService\x12^\n" +
-	"\x13CreateLedgerEntries\x12\".ledger.CreateLedgerEntriesRequest\x1a#.ledger.CreateLedgerEntriesResponseB+Z)son514/ledger-service/gen/ledger;ledgerv1b\x06proto3"
+	"\x13CreateLedgerEntries\x12\".ledger.CreateLedgerEntriesRequest\x1a#.ledger.CreateLedgerEntriesResponse\x12[\n" +
+	"\x12TransactionHistory\x12!.ledger.TransactionHistoryRequest\x1a\".ledger.TransactionHistoryResponseB+Z)son514/ledger-service/gen/ledger;ledgerv1b\x06proto3"
 
 var (
 	file_ledger_proto_rawDescOnce sync.Once
@@ -197,21 +365,29 @@ func file_ledger_proto_rawDescGZIP() []byte {
 	return file_ledger_proto_rawDescData
 }
 
-var file_ledger_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_ledger_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_ledger_proto_goTypes = []any{
 	(*LedgerEntry)(nil),                 // 0: ledger.LedgerEntry
 	(*CreateLedgerEntriesRequest)(nil),  // 1: ledger.CreateLedgerEntriesRequest
 	(*CreateLedgerEntriesResponse)(nil), // 2: ledger.CreateLedgerEntriesResponse
+	(*TransactionHistoryRequest)(nil),   // 3: ledger.TransactionHistoryRequest
+	(*TransactionHistoryEntry)(nil),     // 4: ledger.TransactionHistoryEntry
+	(*TransactionHistoryResponse)(nil),  // 5: ledger.TransactionHistoryResponse
+	(*timestamppb.Timestamp)(nil),       // 6: google.protobuf.Timestamp
 }
 var file_ledger_proto_depIdxs = []int32{
 	0, // 0: ledger.CreateLedgerEntriesRequest.entries:type_name -> ledger.LedgerEntry
-	1, // 1: ledger.LedgerService.CreateLedgerEntries:input_type -> ledger.CreateLedgerEntriesRequest
-	2, // 2: ledger.LedgerService.CreateLedgerEntries:output_type -> ledger.CreateLedgerEntriesResponse
-	2, // [2:3] is the sub-list for method output_type
-	1, // [1:2] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	6, // 1: ledger.TransactionHistoryEntry.created_at:type_name -> google.protobuf.Timestamp
+	4, // 2: ledger.TransactionHistoryResponse.entries:type_name -> ledger.TransactionHistoryEntry
+	1, // 3: ledger.LedgerService.CreateLedgerEntries:input_type -> ledger.CreateLedgerEntriesRequest
+	3, // 4: ledger.LedgerService.TransactionHistory:input_type -> ledger.TransactionHistoryRequest
+	2, // 5: ledger.LedgerService.CreateLedgerEntries:output_type -> ledger.CreateLedgerEntriesResponse
+	5, // 6: ledger.LedgerService.TransactionHistory:output_type -> ledger.TransactionHistoryResponse
+	5, // [5:7] is the sub-list for method output_type
+	3, // [3:5] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_ledger_proto_init() }
@@ -225,7 +401,7 @@ func file_ledger_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ledger_proto_rawDesc), len(file_ledger_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

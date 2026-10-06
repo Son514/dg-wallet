@@ -9,6 +9,7 @@ import (
 	"son514/ledger-service/models"
 
 	googlegrpc "google.golang.org/grpc"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type Server struct {
@@ -39,6 +40,28 @@ func (s *Server) CreateLedgerEntries(
 	}
 
 	return &ledgerv1.CreateLedgerEntriesResponse{EntryIds: ids}, nil
+}
+
+func (s *Server) TransactionHistory(
+	ctx context.Context,
+	req *ledgerv1.TransactionHistoryRequest,
+) (*ledgerv1.TransactionHistoryResponse, error) {
+	entries, err := models.TransactionHistory(s.db, req.GetWalletId())
+	if err != nil {
+		return nil, err
+	}
+
+	history := make([]*ledgerv1.TransactionHistoryEntry, 0, len(entries))
+	for _, entry := range entries {
+		history = append(history, &ledgerv1.TransactionHistoryEntry{
+			EntryId:   entry.ID,
+			Amount:    entry.Amount,
+			Type:      entry.Type,
+			CreatedAt: timestamppb.New(entry.CreatedAt),
+		})
+	}
+
+	return &ledgerv1.TransactionHistoryResponse{Entries: history}, nil
 }
 
 func Serve(listener net.Listener, db *sql.DB) error {
