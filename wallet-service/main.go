@@ -161,7 +161,7 @@ func checkBalance(db *sql.DB, auth authv1.AuthServiceClient, c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"wallet_id": id, "balance": balance})
 }
 
-func transferMoney(db *sql.DB, auth authv1.AuthServiceClient, c *gin.Context) {
+func transferMoney(db *sql.DB, auth authv1.AuthServiceClient, ledger ledgerv1.LedgerServiceClient, c *gin.Context) {
 	userID, ok := authenticatedUserID(auth, c)
 	if !ok {
 		return
@@ -203,6 +203,15 @@ func transferMoney(db *sql.DB, auth authv1.AuthServiceClient, c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "wallet not found"})
 			return
 		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	_, err = grpcclient.CreateLedgerEntries(c.Request.Context(), ledger, []*ledgerv1.LedgerEntry{
+		{WalletId: request.FromWalletID, Amount: "-" + request.Amount, Type: "transfer_out"},
+		{WalletId: request.ToWalletID, Amount: request.Amount, Type: "transfer_in"},
+	})
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -261,7 +270,7 @@ func main() {
 
 	/* --- Transfer Between Wallet --- */
 	router.POST("/transfers", func(c *gin.Context) {
-		transferMoney(db, auth, c)
+		transferMoney(db, auth, ledger, c)
 	})
 
 	router.Run(":8081")
