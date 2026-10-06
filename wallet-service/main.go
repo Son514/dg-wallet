@@ -1,6 +1,6 @@
 package main
 
-// TODO: US-5 — Check Balance
+// TODO: Transfer Between Wallets
 
 import (
 	"database/sql"
@@ -21,6 +21,12 @@ import (
 
 type topUpRequest struct {
 	Amount string `json:"amount"`
+}
+
+type transferRequest struct {
+	FromWalletID int64  `json:"from_wallet_id"`
+	ToWalletID   int64  `json:"to_wallet_id"`
+	Amount       string `json:"amount"`
 }
 
 // authenticatedUserID resolves the caller's id from the bearer token. On
@@ -145,6 +151,46 @@ func checkBalance(db *sql.DB, auth authv1.AuthServiceClient, c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"wallet_id": id, "balance": balance})
 }
 
+func transferMoney(db *sql.DB, auth authv1.AuthServiceClient, c *gin.Context) {
+	userID, ok := authenticatedUserID(auth, c)
+	if !ok {
+		return
+	}
+
+	var request transferRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	amount, err := strconv.ParseFloat(request.Amount, 64)
+	if err != nil || amount <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "amount must be greater than zero"})
+		return
+	}
+
+	wallet := models.NewWallet(userID)
+	id, balance, err := wallet.TransferMoney(db, request.FromWalletID, request.ToWalletID, request.Amount)
+	if err != nil {
+		if errors.Is(err, models.ErrNotWalletOwner) {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+		if errors.Is(err, models.ErrInsufficientBalance) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "wallet not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"wallet_id": id, "balance": balance})
+}
+
 func main() {
 	db, err := database.ConnectDB()
 	if err != nil {
@@ -179,6 +225,11 @@ func main() {
 	/* --- Check Balance --- */
 	router.GET("/wallets/:id", func(c *gin.Context) {
 		checkBalance(db, auth, c)
+	})
+
+	/* --- Transfer Between Wallet --- */
+	router.POST("/transfers", func(c *gin.Context) {
+		transferMoney(db, auth, c)
 	})
 
 	router.Run(":8081")
