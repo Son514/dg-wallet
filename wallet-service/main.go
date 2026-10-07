@@ -3,9 +3,11 @@ package main
 // TODO: US-7 — Ledger Entries (Double-Entry)
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -15,6 +17,7 @@ import (
 	"son514/wallet-service/models"
 	"strconv"
 	"strings"
+	"time"
 
 	authv1 "son514/wallet-service/gen/auth"
 	ledgerv1 "son514/wallet-service/gen/ledger"
@@ -33,6 +36,8 @@ type transferRequest struct {
 	ToWalletID   int64  `json:"to_wallet_id"`
 	Amount       string `json:"amount"`
 }
+
+const walletBalanceCacheTTL = 5 * time.Minute
 
 // authenticatedUserID resolves the caller's id from the bearer token. On
 // failure it writes the response itself and reports false, so callers just
@@ -84,7 +89,7 @@ func createWallet(db *sql.DB, auth authv1.AuthServiceClient, c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"wallet_id": id, "balance": balance})
 }
 
-func topUpWallet(db *sql.DB, auth authv1.AuthServiceClient, ledger ledgerv1.LedgerServiceClient, c *gin.Context) {
+func topUpWallet(db *sql.DB, auth authv1.AuthServiceClient, ledger ledgerv1.LedgerServiceClient, redisClient *redis.Client, c *gin.Context) {
 	walletID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "wallet id must be a number"})
@@ -123,6 +128,10 @@ func topUpWallet(db *sql.DB, auth authv1.AuthServiceClient, ledger ledgerv1.Ledg
 		return
 	}
 
+	if err := invalidateWalletBalanceCache(c.Request.Context(), redisClient, userID, id); err != nil {
+		log.Printf("invalidate wallet balance cache after top-up: %v", err)
+	}
+
 	_, err = grpcclient.CreateLedgerEntries(c.Request.Context(), ledger, []*ledgerv1.LedgerEntry{
 		{WalletId: 0, Amount: "-" + request.Amount, Type: "topup"},
 		{WalletId: id, Amount: request.Amount, Type: "topup"},
@@ -135,7 +144,7 @@ func topUpWallet(db *sql.DB, auth authv1.AuthServiceClient, ledger ledgerv1.Ledg
 	c.JSON(http.StatusOK, gin.H{"wallet_id": id, "balance": balance})
 }
 
-func checkBalance(db *sql.DB, auth authv1.AuthServiceClient, c *gin.Context) {
+func checkBalance(db *sql.DB, auth authv1.AuthServiceClient, redisClient *redis.Client, c *gin.Context) {
 	walletID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "wallet id must be a number"})
@@ -145,6 +154,16 @@ func checkBalance(db *sql.DB, auth authv1.AuthServiceClient, c *gin.Context) {
 	userID, ok := authenticatedUserID(auth, c)
 	if !ok {
 		return
+	}
+
+	cacheKey := walletBalanceRedisKey(userID, walletID)
+	balance, cacheErr := redisClient.Get(c.Request.Context(), cacheKey).Result()
+	if cacheErr == nil {
+		c.JSON(http.StatusOK, gin.H{"wallet_id": walletID, "balance": balance})
+		return
+	}
+	if !errors.Is(cacheErr, redis.Nil) {
+		log.Printf("read wallet balance cache: %v", cacheErr)
 	}
 
 	wallet := models.NewWallet(userID)
@@ -162,7 +181,23 @@ func checkBalance(db *sql.DB, auth authv1.AuthServiceClient, c *gin.Context) {
 		return
 	}
 
+	if err := redisClient.Set(c.Request.Context(), cacheKey, balance, walletBalanceCacheTTL).Err(); err != nil {
+		log.Printf("cache wallet balance: %v", err)
+	}
+
 	c.JSON(http.StatusOK, gin.H{"wallet_id": id, "balance": balance})
+}
+
+func walletBalanceRedisKey(userID, walletID int64) string {
+	return fmt.Sprintf("balance:%d:%d", userID, walletID)
+}
+
+func invalidateWalletBalanceCache(ctx context.Context, redisClient *redis.Client, userID int64, walletIDs ...int64) error {
+	keys := make([]string, len(walletIDs))
+	for i, walletID := range walletIDs {
+		keys[i] = walletBalanceRedisKey(userID, walletID)
+	}
+	return redisClient.Del(ctx, keys...).Err()
 }
 
 func transferMoney(db *sql.DB, auth authv1.AuthServiceClient, ledger ledgerv1.LedgerServiceClient, redisClient *redis.Client, c *gin.Context) {
@@ -198,7 +233,7 @@ func transferMoney(db *sql.DB, auth authv1.AuthServiceClient, ledger ledgerv1.Le
 		return
 	}
 
-	statusCode, response := executeTransfer(db, ledger, userID, c, requestBody)
+	statusCode, response := executeTransfer(db, ledger, redisClient, userID, c, requestBody)
 	responseBody, err := json.Marshal(response)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -223,6 +258,7 @@ func transferMoney(db *sql.DB, auth authv1.AuthServiceClient, ledger ledgerv1.Le
 func executeTransfer(
 	db *sql.DB,
 	ledger ledgerv1.LedgerServiceClient,
+	redisClient *redis.Client,
 	userID int64,
 	c *gin.Context,
 	requestBody []byte,
@@ -243,6 +279,7 @@ func executeTransfer(
 
 	wallet := models.NewWallet(userID)
 	id, balance, err := wallet.TransferMoney(db, request.FromWalletID, request.ToWalletID, request.Amount)
+	invalidateTransferBalanceCache(c.Request.Context(), db, redisClient, userID, request.FromWalletID, request.ToWalletID)
 	if err != nil {
 		if errors.Is(err, models.ErrTransferToSelf) {
 			return http.StatusBadRequest, gin.H{"error": err.Error()}
@@ -268,6 +305,35 @@ func executeTransfer(
 	}
 
 	return http.StatusOK, gin.H{"wallet_id": id, "balance": balance}
+}
+
+func invalidateTransferBalanceCache(
+	ctx context.Context,
+	db *sql.DB,
+	redisClient *redis.Client,
+	userID int64,
+	fromWalletID int64,
+	toWalletID int64,
+) {
+	if err := invalidateWalletBalanceCache(ctx, redisClient, userID, fromWalletID); err != nil {
+		log.Printf("invalidate transfer source balance cache: %v", err)
+	}
+
+	var destinationUserID int64
+	err := db.QueryRow(
+		"SELECT user_id FROM wallet_table WHERE wallet_id = $1",
+		toWalletID,
+	).Scan(&destinationUserID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return
+	}
+	if err != nil {
+		log.Printf("look up transfer destination owner for balance cache invalidation: %v", err)
+		return
+	}
+	if err := invalidateWalletBalanceCache(ctx, redisClient, destinationUserID, toWalletID); err != nil {
+		log.Printf("invalidate transfer destination balance cache: %v", err)
+	}
 }
 
 func transactionHistory(db *sql.DB, auth authv1.AuthServiceClient, ledger ledgerv1.LedgerServiceClient, c *gin.Context) {
@@ -369,12 +435,12 @@ func main() {
 
 	/* --- Top-up to Wallet --- */
 	router.POST("/wallets/:id/topup", func(c *gin.Context) {
-		topUpWallet(db, auth, ledger, c)
+		topUpWallet(db, auth, ledger, redisClient, c)
 	})
 
 	/* --- Check Balance --- */
 	router.GET("/wallets/:id", func(c *gin.Context) {
-		checkBalance(db, auth, c)
+		checkBalance(db, auth, redisClient, c)
 	})
 
 	/* --- Transfer Between Wallet --- */

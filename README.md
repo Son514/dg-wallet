@@ -341,11 +341,24 @@ Returns a wallet's current balance. Takes no request body and makes no writes.
 Requires an `Authorization: Bearer <jwt>` header, validated over gRPC exactly as
 in the other wallet endpoints.
 
-Ownership is enforced with `WHERE wallet_id = $1 AND user_id = $2`, where `$2` is
-the `sub` claim of the validated token. If that scoped query matches no row, the
-model looks up the owner of that `wallet_id` to separate `403` from `404`. Only
-the ownership-scoped `SELECT` decides whether a caller may read a balance; the
-owner lookup runs on the failure path only.
+Balance reads check Redis first using `balance:<user_id>:<wallet_id>`. On a
+cache miss or Redis error, wallet-service reads from Postgres using
+`WHERE wallet_id = $1 AND user_id = $2`, where `$2` is the `sub` claim of the
+validated token. Only a successful ownership-scoped database read populates the
+cache, so cached entries are isolated by user. The cache TTL is five minutes.
+If Redis is unavailable, the endpoint falls back to Postgres; cache read/write
+errors are logged.
+
+After a successful top-up or transfer database update, wallet-service
+invalidates the affected balance cache entries. Transfers invalidate the
+source and destination entries, including the destination wallet owner's
+entry. If invalidation fails after the database mutation, the mutation response
+is still returned and the failure is logged; stale data may remain cached until
+the TTL expires.
+
+If the ownership-scoped query matches no row, the model looks up the owner of
+that `wallet_id` to distinguish `403` from `404`. The owner lookup runs only
+after a cache miss and only on the database failure path.
 
 | Status | Body                                        | When                                              |
 |--------|---------------------------------------------|---------------------------------------------------|
