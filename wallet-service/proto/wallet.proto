@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package wallet;
+
+option go_package = "son514/wallet-service/gen/wallet;walletv1";
+
+service WalletService {
+  rpc CreateWallet(CreateWalletRequest) returns (CreateWalletResponse);
+}
+
+message CreateWalletRequest {
+  string token = 1;
+}
+
+message CreateWalletResponse {
+  int64 wallet_id = 1;
+  string balance = 2;
+}

@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"son514/wallet-service/database"
@@ -297,6 +298,8 @@ func main() {
 
 	ledger := ledgerv1.NewLedgerServiceClient(ledgerConn)
 
+	go serveGRPC(db, auth)
+
 	router := gin.Default()
 	/* --- Create a Wallet --- */
 	router.POST("/wallets", func(c *gin.Context) {
@@ -324,4 +327,22 @@ func main() {
 	})
 
 	router.Run(":8081")
+}
+
+func serveGRPC(db *sql.DB, auth authv1.AuthServiceClient) {
+	port := os.Getenv("WALLET_GRPC_PORT")
+	if port == "" {
+		port = "50053"
+	}
+
+	listener, err := net.Listen("tcp", ":"+port)
+	if err != nil {
+		log.Fatalf("grpc listen: %v", err)
+	}
+
+	log.Println("wallet gRPC listening on", listener.Addr())
+
+	if err := grpcclient.Serve(listener, db, auth); err != nil {
+		log.Fatalf("grpc serve: %v", err)
+	}
 }

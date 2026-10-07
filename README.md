@@ -1,8 +1,9 @@
 # dg-wallet
 
-Wallet platform. Contains two Go modules — `auth-service` (users, JWT, gRPC token
-validation) and `wallet-service` (wallets). Each has its own `.env`, its own
-Postgres database, and its own migrations.
+Wallet platform. Contains three Go modules — `auth-service` (users, JWT, gRPC
+token validation), `ledger-service` (ledger entries), and `wallet-service`
+(wallets and HTTP/gRPC APIs). Each has its own `.env`, Postgres database, and
+migrations.
 
 ## Requirements
 
@@ -38,6 +39,7 @@ Read from the `.env` in each service's own directory.
 | `DB_NAME`    | Database name                      | Yes      |
 | `JWT_SECRET` | HS256 signing key for JWTs         | auth-service only |
 | `GRPC_PORT`  | Port for the gRPC server           | auth-service, ledger-service, optional |
+| `WALLET_GRPC_PORT` | wallet-service gRPC port (default `50053`) | wallet-service, optional |
 | `AUTH_GRPC_ADDR` | auth-service gRPC address      | wallet-service only, optional |
 | `LEDGER_GRPC_ADDR` | ledger-service gRPC address  | wallet-service only, optional |
 
@@ -53,6 +55,8 @@ listens. wallet-service reads it after `ConnectDB` has loaded `.env`, so the
 value only takes effect if the database connection is established first.
 `LEDGER_GRPC_ADDR` defaults to `localhost:50052`, which is where ledger-service
 listens.
+wallet-service serves its own gRPC API on port `50053` by default; override it
+with `WALLET_GRPC_PORT`.
 
 Generate a real secret with `openssl rand -base64 32`. Anyone holding it can mint
 valid tokens, so never commit `.env`.
@@ -458,17 +462,42 @@ and `ValidateToken` wraps each call in a 3s context timeout so a hung
 auth-service cannot hang the HTTP request.
 
 The generated client in `gen/auth/` is a **separate copy** from auth-service's,
-produced from `../auth-service/proto/auth.proto`:
+produced from `../auth-service/proto/auth.proto`. The Makefile also generates
+the ledger and wallet bindings:
 
 ```bash
 make proto
 ```
 
-Run from `wallet-service/`. An `Mauth.proto` flag overrides `go_package`, since
-the schema declares `son514/auth-service/gen/auth;authv1`. The override is
-per-file, so adding a second proto means adding another flag. Regenerate here as
-well as in auth-service whenever the schema changes, or wallet-service compiles
-against a stale contract.
+Run from `wallet-service/`. The `Mauth.proto` and `Mledger.proto` flags override
+their `go_package` paths so generated code is written into wallet-service's
+local copies. The wallet schema declares its wallet-service package directly.
+Regenerate here as well as in auth-service whenever the auth schema changes, or
+wallet-service compiles against a stale contract.
+
+### wallet-service server
+
+wallet-service also serves `wallet.WalletService/CreateWallet` over plaintext
+gRPC, alongside its HTTP API. The listener defaults to port `50053`, configurable
+with `WALLET_GRPC_PORT`.
+
+The request carries the same bearer JWT used by the HTTP API:
+
+```bash
+grpcurl -plaintext \
+  -import-path wallet-service/proto -proto wallet.proto \
+  -d '{"token":"<jwt>"}' \
+  localhost:50053 wallet.WalletService/CreateWallet
+```
+
+The server validates the token through auth-service before creating the wallet.
+It returns `wallet_id` and `balance`; invalid tokens return `UNAUTHENTICATED`,
+an existing wallet returns `ALREADY_EXISTS`, auth-service call failures return
+`UNAVAILABLE`, and database failures return `INTERNAL`.
+
+The schema is `wallet-service/proto/wallet.proto` and generated code is in
+`wallet-service/gen/wallet/`. Run `make proto` from `wallet-service/` to
+regenerate the auth, ledger, and wallet bindings.
 
 ## Project Structure
 
@@ -517,11 +546,21 @@ against a stale contract.
     │       ├── 000002_add_wallet_table_user_id.up.sql
     │       └── 000002_add_wallet_table_user_id.down.sql
     ├── gen
-    │   └── auth
+    │   ├── auth
     │       ├── auth.pb.go
     │       └── auth_grpc.pb.go
+    │   ├── ledger
+    │   │   ├── ledger.pb.go
+    │   │   └── ledger_grpc.pb.go
+    │   └── wallet
+    │       ├── wallet.pb.go
+    │       └── wallet_grpc.pb.go
     ├── grpc
-    │   └── client.go
+    │   ├── client.go
+    │   └── server.go
+    ├── proto
+    │   ├── ledger.proto
+    │   └── wallet.proto
     └── models
         └── wallet.go
 ```
