@@ -9,6 +9,7 @@ migrations.
 
 - Go 1.27+
 - PostgreSQL
+- Redis
 - `make`
 - `migrate` CLI (`github.com/golang-migrate/migrate`) with the `postgres` driver
 
@@ -43,6 +44,7 @@ Read from the `.env` in each service's own directory.
 | `AUTH_GRPC_ADDR` | auth-service gRPC address      | wallet-service only, optional |
 | `LEDGER_GRPC_ADDR` | ledger-service gRPC address  | wallet-service only, optional |
 | `WALLET_GRPC_ADDR` | wallet-service gRPC address (default `localhost:50053`) | auth-service only, optional |
+| `REDIS_URL` | Redis URL for transfer idempotency (default `redis://localhost:6379/0`) | wallet-service, optional |
 
 `auth-service/.env` points at `auth_db`; `wallet-service/.env` points at
 `wallet_db`. The two databases are separate, so there are no cross-database
@@ -60,6 +62,8 @@ wallet-service serves its own gRPC API on port `50053` by default; override it
 with `WALLET_GRPC_PORT`.
 auth-service calls wallet-service at `localhost:50053` by default after signup;
 override this with `WALLET_GRPC_ADDR`.
+wallet-service uses Redis at `redis://localhost:6379/0` by default for transfer
+idempotency; override the URL with `REDIS_URL`.
 
 Generate a real secret with `openssl rand -base64 32`. Anyone holding it can mint
 valid tokens, so never commit `.env`.
@@ -390,6 +394,18 @@ Each entry includes its ID, amount, type, and creation time:
 | `404`  | `{"error":"wallet not found"}`                | No wallet with that `wallet_id`                    |
 | `503`  | `{"error":"..."}`                             | An auth-service or ledger-service gRPC call failed |
 | `500`  | `{"error":"..."}`                             | Wallet ownership query failed for another reason  |
+
+#### POST /transfers
+
+Requires an `Authorization: Bearer <token>` header and a non-empty
+`Idempotency-Key` header. The key is scoped to the authenticated user. The
+first completed transfer response (HTTP status and body), including failed
+responses, is stored in Redis for 24 hours. Later requests with the same key
+replay that response; request bodies are not compared.
+
+Missing keys return `400 Bad Request`. Redis errors return `503 Service
+Unavailable`. If Redis fails while saving a response, the transfer may already
+have been processed.
 
 ## gRPC
 

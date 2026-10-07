@@ -4,7 +4,9 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -19,6 +21,7 @@ import (
 	grpcclient "son514/wallet-service/grpc"
 
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 )
 
 type topUpRequest struct {
@@ -162,9 +165,9 @@ func checkBalance(db *sql.DB, auth authv1.AuthServiceClient, c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"wallet_id": id, "balance": balance})
 }
 
-func transferMoney(db *sql.DB, auth authv1.AuthServiceClient, ledger ledgerv1.LedgerServiceClient, c *gin.Context) {
-	idempotencyKey := c.GetHeader("Idempotency-Key")
-	if strings.TrimSpace(idempotencyKey) == "" {
+func transferMoney(db *sql.DB, auth authv1.AuthServiceClient, ledger ledgerv1.LedgerServiceClient, redisClient *redis.Client, c *gin.Context) {
+	idempotencyKey := strings.TrimSpace(c.GetHeader("Idempotency-Key"))
+	if idempotencyKey == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "missing Idempotency-Key header"})
 		return
 	}
@@ -174,44 +177,86 @@ func transferMoney(db *sql.DB, auth authv1.AuthServiceClient, ledger ledgerv1.Le
 		return
 	}
 
-	var request transferRequest
-	if err := c.ShouldBindJSON(&request); err != nil {
+	cached, err := getTransferIdempotency(
+		c.Request.Context(),
+		redisClient,
+		userID,
+		idempotencyKey,
+	)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+		return
+	}
+	if cached != nil {
+		c.Data(cached.StatusCode, "application/json; charset=utf-8", []byte(cached.Body))
+		return
+	}
+
+	requestBody, err := io.ReadAll(c.Request.Body)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	amount, err := strconv.ParseFloat(request.Amount, 64)
-	if err != nil || amount <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "amount must be greater than zero"})
+	statusCode, response := executeTransfer(db, ledger, userID, c, requestBody)
+	responseBody, err := json.Marshal(response)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	if request.FromWalletID == request.ToWalletID {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot transfer to self"})
+	if err := storeTransferIdempotency(
+		c.Request.Context(),
+		redisClient,
+		userID,
+		idempotencyKey,
+		statusCode,
+		responseBody,
+	); err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		return
+	}
+
+	c.Data(statusCode, "application/json; charset=utf-8", responseBody)
+}
+
+func executeTransfer(
+	db *sql.DB,
+	ledger ledgerv1.LedgerServiceClient,
+	userID int64,
+	c *gin.Context,
+	requestBody []byte,
+) (int, gin.H) {
+	var request transferRequest
+	if err := json.Unmarshal(requestBody, &request); err != nil {
+		return http.StatusBadRequest, gin.H{"error": err.Error()}
+	}
+
+	amount, err := strconv.ParseFloat(request.Amount, 64)
+	if err != nil || amount <= 0 {
+		return http.StatusBadRequest, gin.H{"error": "amount must be greater than zero"}
+	}
+
+	if request.FromWalletID == request.ToWalletID {
+		return http.StatusBadRequest, gin.H{"error": "cannot transfer to self"}
 	}
 
 	wallet := models.NewWallet(userID)
 	id, balance, err := wallet.TransferMoney(db, request.FromWalletID, request.ToWalletID, request.Amount)
 	if err != nil {
 		if errors.Is(err, models.ErrTransferToSelf) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
+			return http.StatusBadRequest, gin.H{"error": err.Error()}
 		}
 		if errors.Is(err, models.ErrNotWalletOwner) {
-			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
-			return
+			return http.StatusForbidden, gin.H{"error": err.Error()}
 		}
 		if errors.Is(err, models.ErrInsufficientBalance) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
+			return http.StatusBadRequest, gin.H{"error": err.Error()}
 		}
 		if errors.Is(err, sql.ErrNoRows) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "wallet not found"})
-			return
+			return http.StatusNotFound, gin.H{"error": "wallet not found"}
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+		return http.StatusInternalServerError, gin.H{"error": err.Error()}
 	}
 
 	_, err = grpcclient.CreateLedgerEntries(c.Request.Context(), ledger, []*ledgerv1.LedgerEntry{
@@ -219,11 +264,10 @@ func transferMoney(db *sql.DB, auth authv1.AuthServiceClient, ledger ledgerv1.Le
 		{WalletId: request.ToWalletID, Amount: request.Amount, Type: "transfer_in"},
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+		return http.StatusInternalServerError, gin.H{"error": err.Error()}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"wallet_id": id, "balance": balance})
+	return http.StatusOK, gin.H{"wallet_id": id, "balance": balance}
 }
 
 func transactionHistory(db *sql.DB, auth authv1.AuthServiceClient, ledger ledgerv1.LedgerServiceClient, c *gin.Context) {
@@ -278,6 +322,17 @@ func main() {
 	}
 	defer db.Close()
 
+	redisURL := os.Getenv("REDIS_URL")
+	if redisURL == "" {
+		redisURL = "redis://localhost:6379/0"
+	}
+	redisOptions, err := redis.ParseURL(redisURL)
+	if err != nil {
+		log.Fatal(err)
+	}
+	redisClient := redis.NewClient(redisOptions)
+	defer redisClient.Close()
+
 	addr := os.Getenv("AUTH_GRPC_ADDR")
 	if addr == "" {
 		addr = "localhost:50051"
@@ -324,7 +379,7 @@ func main() {
 
 	/* --- Transfer Between Wallet --- */
 	router.POST("/transfers", func(c *gin.Context) {
-		transferMoney(db, auth, ledger, c)
+		transferMoney(db, auth, ledger, redisClient, c)
 	})
 
 	/* --- Transaction History --- */
