@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -65,6 +63,5 @@ func storeTransferIdempotency(
 }
 
 func transferIdempotencyRedisKey(userID int64, idempotencyKey string) string {
-	keyHash := sha256.Sum256([]byte(idempotencyKey))
-	return fmt.Sprintf("wallet:transfer:idempotency:%d:%s", userID, hex.EncodeToString(keyHash[:]))
+	return fmt.Sprintf("idem:%d:%s", userID, idempotencyKey)
 }
