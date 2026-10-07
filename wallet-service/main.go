@@ -163,6 +163,12 @@ func checkBalance(db *sql.DB, auth authv1.AuthServiceClient, c *gin.Context) {
 }
 
 func transferMoney(db *sql.DB, auth authv1.AuthServiceClient, ledger ledgerv1.LedgerServiceClient, c *gin.Context) {
+	idempotencyKey := c.GetHeader("Idempotency-Key")
+	if strings.TrimSpace(idempotencyKey) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing Idempotency-Key header"})
+		return
+	}
+
 	userID, ok := authenticatedUserID(auth, c)
 	if !ok {
 		return
