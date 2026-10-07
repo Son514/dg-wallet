@@ -5,11 +5,13 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/gin-gonic/gin"
-	"golang.org/x/crypto/bcrypt"
-
+	walletv1 "son514/auth-service/gen/wallet"
+	authgrpc "son514/auth-service/grpc"
 	"son514/auth-service/jwt"
 	"son514/auth-service/models"
+
+	"github.com/gin-gonic/gin"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type registerUserRequest struct {
@@ -22,16 +24,16 @@ type loginUserRequest struct {
 	Password string `json:"password"`
 }
 
-func Setup(router *gin.Engine, database *sql.DB) {
+func Setup(router *gin.Engine, database *sql.DB, wallet walletv1.WalletServiceClient) {
 	router.POST("/users", func(c *gin.Context) {
-		registerUser(database, c)
+		registerUser(database, wallet, c)
 	})
 	router.POST("/login", func(c *gin.Context) {
 		loginUser(database, c)
 	})
 }
 
-func registerUser(database *sql.DB, c *gin.Context) {
+func registerUser(database *sql.DB, wallet walletv1.WalletServiceClient, c *gin.Context) {
 	var request registerUserRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -52,7 +54,24 @@ func registerUser(database *sql.DB, c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"id": id, "email": request.Email})
+	token, err := jwt.Generate(id, request.Email)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	createdWallet, err := authgrpc.CreateWallet(c.Request.Context(), wallet, token)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"id":        id,
+		"email":     request.Email,
+		"wallet_id": createdWallet.GetWalletId(),
+		"balance":   createdWallet.GetBalance(),
+	})
 }
 
 func loginUser(database *sql.DB, c *gin.Context) {

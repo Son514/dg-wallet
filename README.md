@@ -42,6 +42,7 @@ Read from the `.env` in each service's own directory.
 | `WALLET_GRPC_PORT` | wallet-service gRPC port (default `50053`) | wallet-service, optional |
 | `AUTH_GRPC_ADDR` | auth-service gRPC address      | wallet-service only, optional |
 | `LEDGER_GRPC_ADDR` | ledger-service gRPC address  | wallet-service only, optional |
+| `WALLET_GRPC_ADDR` | wallet-service gRPC address (default `localhost:50053`) | auth-service only, optional |
 
 `auth-service/.env` points at `auth_db`; `wallet-service/.env` points at
 `wallet_db`. The two databases are separate, so there are no cross-database
@@ -57,6 +58,8 @@ value only takes effect if the database connection is established first.
 listens.
 wallet-service serves its own gRPC API on port `50053` by default; override it
 with `WALLET_GRPC_PORT`.
+auth-service calls wallet-service at `localhost:50053` by default after signup;
+override this with `WALLET_GRPC_ADDR`.
 
 Generate a real secret with `openssl rand -base64 32`. Anyone holding it can mint
 valid tokens, so never commit `.env`.
@@ -193,10 +196,16 @@ never returned by the API. bcrypt only accepts passwords up to 72 bytes.
 
 | Status | Body                                | When                                              |
 |--------|-------------------------------------|---------------------------------------------------|
-| `201`  | `{"id":1,"email":"user@example.com"}`| Created; password is never echoed                 |
+| `201`  | `{"id":1,"email":"user@example.com","wallet_id":1,"balance":"0.0000"}` | User and wallet created; password is never echoed |
 | `400`  | `{"error":"..."}`                    | Body is not valid JSON, or password exceeds 72 bytes |
 | `409`  | `{"error":"email already exists"}`   | Email is already registered                       |
+| `502`  | `{"error":"..."}`                    | User created, but wallet provisioning failed       |
 | `500`  | `{"error":"..."}`                    | Insert failed for any other reason                |
+
+After inserting the user, auth-service generates a JWT and sends it to
+wallet-service's `WalletService/CreateWallet` RPC. If that RPC fails, signup
+returns `502`, but the user remains in auth_db; the two service databases cannot
+be rolled back as one transaction.
 
 ### POST /login
 
@@ -475,6 +484,14 @@ local copies. The wallet schema declares its wallet-service package directly.
 Regenerate here as well as in auth-service whenever the auth schema changes, or
 wallet-service compiles against a stale contract.
 
+### auth-service client
+
+After creating a user, auth-service calls wallet-service's
+`WalletService/CreateWallet` RPC using an internally generated JWT. The gRPC
+client wrapper is in `auth-service/grpc/client.go`; `WALLET_GRPC_ADDR` defaults
+to `localhost:50053`. The generated wallet client lives in `auth-service/gen/wallet/`
+and is produced from `../wallet-service/proto/wallet.proto` by `make proto`.
+
 ### wallet-service server
 
 wallet-service also serves `wallet.WalletService/CreateWallet` over plaintext
@@ -519,10 +536,14 @@ regenerate the auth, ledger, and wallet bindings.
 │   │       ├── 000002_add_users_id.up.sql
 │   │       └── 000002_add_users_id.down.sql
 │   ├── gen
-│   │   └── auth
-│   │       ├── auth.pb.go
-│   │       └── auth_grpc.pb.go
+│   │   ├── auth
+│   │   │   ├── auth.pb.go
+│   │   │   └── auth_grpc.pb.go
+│   └── wallet
+│       ├── wallet.pb.go
+│       └── wallet_grpc.pb.go
 │   ├── grpc
+│   │   ├── client.go
 │   │   └── server.go
 │   ├── jwt
 │   │   └── jwt.go
@@ -547,8 +568,8 @@ regenerate the auth, ledger, and wallet bindings.
     │       └── 000002_add_wallet_table_user_id.down.sql
     ├── gen
     │   ├── auth
-    │       ├── auth.pb.go
-    │       └── auth_grpc.pb.go
+    │   │   ├── auth.pb.go
+    │   │   └── auth_grpc.pb.go
     │   ├── ledger
     │   │   ├── ledger.pb.go
     │   │   └── ledger_grpc.pb.go

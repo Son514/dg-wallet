@@ -5,6 +5,8 @@ import (
 	"net"
 	"os"
 	"son514/auth-service/database/db"
+	walletv1 "son514/auth-service/gen/wallet"
+	authgrpc "son514/auth-service/grpc"
 	"son514/auth-service/routes"
 
 	grpcserver "son514/auth-service/grpc"
@@ -19,9 +21,22 @@ func main() {
 	}
 	defer database.Close()
 
+	walletAddr := os.Getenv("WALLET_GRPC_ADDR")
+	if walletAddr == "" {
+		walletAddr = "localhost:50053"
+	}
+
+	walletConn, err := authgrpc.NewWalletClient(walletAddr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer walletConn.Close()
+
+	walletClient := walletv1.NewWalletServiceClient(walletConn)
+
 	router := gin.Default()
 
-	routes.Setup(router, database)
+	routes.Setup(router, database, walletClient)
 
 	go serveGRPC()
 
