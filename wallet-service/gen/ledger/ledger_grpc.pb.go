@@ -20,6 +20,7 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	LedgerService_CreateLedgerEntries_FullMethodName = "/ledger.LedgerService/CreateLedgerEntries"
+	LedgerService_TransactionHistory_FullMethodName  = "/ledger.LedgerService/TransactionHistory"
 )
 
 // LedgerServiceClient is the client API for LedgerService service.
@@ -27,6 +28,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type LedgerServiceClient interface {
 	CreateLedgerEntries(ctx context.Context, in *CreateLedgerEntriesRequest, opts ...grpc.CallOption) (*CreateLedgerEntriesResponse, error)
+	TransactionHistory(ctx context.Context, in *TransactionHistoryRequest, opts ...grpc.CallOption) (*TransactionHistoryResponse, error)
 }
 
 type ledgerServiceClient struct {
@@ -47,11 +49,22 @@ func (c *ledgerServiceClient) CreateLedgerEntries(ctx context.Context, in *Creat
 	return out, nil
 }
 
+func (c *ledgerServiceClient) TransactionHistory(ctx context.Context, in *TransactionHistoryRequest, opts ...grpc.CallOption) (*TransactionHistoryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TransactionHistoryResponse)
+	err := c.cc.Invoke(ctx, LedgerService_TransactionHistory_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // LedgerServiceServer is the server API for LedgerService service.
 // All implementations must embed UnimplementedLedgerServiceServer
 // for forward compatibility.
 type LedgerServiceServer interface {
 	CreateLedgerEntries(context.Context, *CreateLedgerEntriesRequest) (*CreateLedgerEntriesResponse, error)
+	TransactionHistory(context.Context, *TransactionHistoryRequest) (*TransactionHistoryResponse, error)
 	mustEmbedUnimplementedLedgerServiceServer()
 }
 
@@ -64,6 +77,9 @@ type UnimplementedLedgerServiceServer struct{}
 
 func (UnimplementedLedgerServiceServer) CreateLedgerEntries(context.Context, *CreateLedgerEntriesRequest) (*CreateLedgerEntriesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateLedgerEntries not implemented")
+}
+func (UnimplementedLedgerServiceServer) TransactionHistory(context.Context, *TransactionHistoryRequest) (*TransactionHistoryResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method TransactionHistory not implemented")
 }
 func (UnimplementedLedgerServiceServer) mustEmbedUnimplementedLedgerServiceServer() {}
 func (UnimplementedLedgerServiceServer) testEmbeddedByValue()                       {}
@@ -104,6 +120,24 @@ func _LedgerService_CreateLedgerEntries_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _LedgerService_TransactionHistory_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TransactionHistoryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LedgerServiceServer).TransactionHistory(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LedgerService_TransactionHistory_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LedgerServiceServer).TransactionHistory(ctx, req.(*TransactionHistoryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // LedgerService_ServiceDesc is the grpc.ServiceDesc for LedgerService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -114,6 +148,10 @@ var LedgerService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CreateLedgerEntries",
 			Handler:    _LedgerService_CreateLedgerEntries_Handler,
+		},
+		{
+			MethodName: "TransactionHistory",
+			Handler:    _LedgerService_TransactionHistory_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

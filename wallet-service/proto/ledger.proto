@@ -2,10 +2,13 @@ syntax = "proto3";
 
 package ledger;
 
+import "google/protobuf/timestamp.proto";
+
 option go_package = "son514/ledger-service/gen/ledger;ledgerv1";
 
 service LedgerService {
   rpc CreateLedgerEntries(CreateLedgerEntriesRequest) returns (CreateLedgerEntriesResponse);
+  rpc TransactionHistory(TransactionHistoryRequest) returns (TransactionHistoryResponse);
 }
 
 message LedgerEntry {
@@ -20,4 +23,19 @@ message CreateLedgerEntriesRequest {
 
 message CreateLedgerEntriesResponse {
   repeated int64 entry_ids = 1;
+}
+
+message TransactionHistoryRequest {
+  int64 wallet_id = 1;
+}
+
+message TransactionHistoryEntry {
+  int64 entry_id = 1;
+  string amount = 2;
+  string type = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+message TransactionHistoryResponse {
+  repeated TransactionHistoryEntry entries = 1;
 }

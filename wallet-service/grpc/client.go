@@ -41,3 +41,14 @@ func CreateLedgerEntries(
 
 	return client.CreateLedgerEntries(ctx, &ledgerv1.CreateLedgerEntriesRequest{Entries: entries})
 }
+
+func TransactionHistory(
+	ctx context.Context,
+	client ledgerv1.LedgerServiceClient,
+	walletID int64,
+) (*ledgerv1.TransactionHistoryResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	return client.TransactionHistory(ctx, &ledgerv1.TransactionHistoryRequest{WalletId: walletID})
+}
