@@ -219,6 +219,51 @@ func transferMoney(db *sql.DB, auth authv1.AuthServiceClient, ledger ledgerv1.Le
 	c.JSON(http.StatusOK, gin.H{"wallet_id": id, "balance": balance})
 }
 
+func transactionHistory(db *sql.DB, auth authv1.AuthServiceClient, ledger ledgerv1.LedgerServiceClient, c *gin.Context) {
+	walletID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "wallet id must be a number"})
+		return
+	}
+
+	userID, ok := authenticatedUserID(auth, c)
+	if !ok {
+		return
+	}
+
+	wallet := models.NewWallet(userID)
+	if _, _, err := wallet.CheckBalance(db, walletID); err != nil {
+		if errors.Is(err, models.ErrNotWalletOwner) {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "wallet not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	history, err := grpcclient.TransactionHistory(c.Request.Context(), ledger, walletID)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+		return
+	}
+
+	entries := make([]gin.H, 0, len(history.GetEntries()))
+	for _, entry := range history.GetEntries() {
+		entries = append(entries, gin.H{
+			"entry_id":   entry.GetEntryId(),
+			"amount":     entry.GetAmount(),
+			"type":       entry.GetType(),
+			"created_at": entry.GetCreatedAt().AsTime(),
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"wallet_id": walletID, "entries": entries})
+}
+
 func main() {
 	db, err := database.ConnectDB()
 	if err != nil {
@@ -271,6 +316,11 @@ func main() {
 	/* --- Transfer Between Wallet --- */
 	router.POST("/transfers", func(c *gin.Context) {
 		transferMoney(db, auth, ledger, c)
+	})
+
+	/* --- Transaction History --- */
+	router.GET("/wallets/:id/transactions", func(c *gin.Context) {
+		transactionHistory(db, auth, ledger, c)
 	})
 
 	router.Run(":8081")

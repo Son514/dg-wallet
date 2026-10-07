@@ -233,6 +233,7 @@ Tokens are signed with HS256 using `JWT_SECRET` and are valid for 1 hour. Claims
 | POST   | `/wallets`               | Create a new wallet       |
 | POST   | `/wallets/:id/topup`     | Add funds to a wallet     |
 | GET    | `/wallets/:id`           | Check a wallet's balance  |
+| GET    | `/wallets/:id/transactions` | Get a wallet's transaction history |
 
 #### POST /wallets
 
@@ -321,7 +322,7 @@ Two caveats follow from the column being `NUMERIC(19,4)`:
 Returns a wallet's current balance. Takes no request body and makes no writes.
 
 Requires an `Authorization: Bearer <jwt>` header, validated over gRPC exactly as
-in the other two endpoints.
+in the other wallet endpoints.
 
 Ownership is enforced with `WHERE wallet_id = $1 AND user_id = $2`, where `$2` is
 the `sub` claim of the validated token. If that scoped query matches no row, the
@@ -342,8 +343,40 @@ owner lookup runs on the failure path only.
 `balance` is a string with exactly four decimal places, as on every other
 endpoint. Since `wallet_table.user_id` is `UNIQUE`, a user has at most one
 wallet, so `:id` is redundant in practice — `GET /wallets` without an id would
-address the same single wallet. The id is kept in the path and echoed back so
-all three wallet endpoints share one response shape.
+address the same single wallet. The id is kept in the path and echoed back.
+
+#### GET /wallets/:id/transactions
+
+Returns the wallet's ledger entries, newest first. Requires an
+`Authorization: ****** header. The token is validated over gRPC, then wallet
+ownership is checked against `wallet_db` before requesting history from
+ledger-service. No request body is needed.
+
+Each entry includes its ID, amount, type, and creation time:
+
+```json
+{
+  "wallet_id": 1,
+  "entries": [
+    {
+      "entry_id": 42,
+      "amount": "25.0000",
+      "type": "topup",
+      "created_at": "2026-10-07T00:00:00Z"
+    }
+  ]
+}
+```
+
+| Status | Body                                          | When                                              |
+|--------|-----------------------------------------------|---------------------------------------------------|
+| `200`  | `{"wallet_id":1,"entries":[...]}`             | Caller owns the wallet; entries may be empty      |
+| `400`  | `{"error":"wallet id must be a number"}`      | `:id` is not numeric                               |
+| `401`  | `{"error":"..."}`                             | Missing/empty bearer token, or auth-service rejected it |
+| `403`  | `{"error":"you do not own this wallet"}`      | That wallet belongs to another user                |
+| `404`  | `{"error":"wallet not found"}`                | No wallet with that `wallet_id`                    |
+| `503`  | `{"error":"..."}`                             | An auth-service or ledger-service gRPC call failed |
+| `500`  | `{"error":"..."}`                             | Wallet ownership query failed for another reason  |
 
 ## gRPC
 
