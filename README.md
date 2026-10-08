@@ -252,6 +252,13 @@ Tokens are signed with HS256 using `JWT_SECRET` and are valid for 1 hour. Claims
 | GET    | `/wallets/:id`           | Check a wallet's balance  |
 | GET    | `/wallets/:id/transactions` | Get a wallet's transaction history |
 
+Every wallet-service endpoint accepts an optional `X-Request-ID` header. When
+absent, wallet-service generates a UUIDv4. The value is echoed back in the
+`X-Request-ID` response header and forwarded as `x-request-id` gRPC metadata on
+outbound calls to auth-service (`AuthService/ValidateToken`) and ledger-service
+(`LedgerService/CreateLedgerEntries`, `LedgerService/TransactionHistory`), which
+log it. This lets a single transfer be traced across all three services.
+
 #### POST /wallets
 
 Requires an `Authorization: Bearer <jwt>` header. The token is validated by

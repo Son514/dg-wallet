@@ -24,7 +24,9 @@ import (
 	grpcclient "son514/wallet-service/grpc"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
+	"google.golang.org/grpc/metadata"
 )
 
 type topUpRequest struct {
@@ -37,7 +39,23 @@ type transferRequest struct {
 	Amount       string `json:"amount"`
 }
 
-const walletBalanceCacheTTL = 5 * time.Minute
+const (
+	walletBalanceCacheTTL = 5 * time.Minute
+	requestIDHeader       = "X-Request-ID"
+)
+
+func requestIDMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		requestID := strings.TrimSpace(c.GetHeader(requestIDHeader))
+		if requestID == "" {
+			requestID = uuid.NewString()
+		}
+		ctx := metadata.AppendToOutgoingContext(c.Request.Context(), "x-request-id", requestID)
+		c.Request = c.Request.WithContext(ctx)
+		c.Header(requestIDHeader, requestID)
+		c.Next()
+	}
+}
 
 // authenticatedUserID resolves the caller's id from the bearer token. On
 // failure it writes the response itself and reports false, so callers just
@@ -428,6 +446,7 @@ func main() {
 	go serveGRPC(db, auth)
 
 	router := gin.Default()
+	router.Use(requestIDMiddleware())
 	/* --- Create a Wallet --- */
 	router.POST("/wallets", func(c *gin.Context) {
 		createWallet(db, auth, c)

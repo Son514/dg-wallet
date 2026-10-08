@@ -3,9 +3,11 @@ package grpc
 import (
 	"context"
 	"errors"
+	"log"
 	"net"
 
 	googlegrpc "google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 
 	authv1 "son514/auth-service/gen/auth"
 	"son514/auth-service/jwt"
@@ -21,6 +23,10 @@ func (s *Server) ValidateToken(
 	ctx context.Context,
 	req *authv1.ValidateTokenRequest,
 ) (*authv1.ValidateTokenResponse, error) {
+	if requestID := incomingRequestID(ctx); requestID != "" {
+		log.Printf("validate_token request_id=%s", requestID)
+	}
+
 	validated, err := jwt.Validate(req.GetToken())
 	if err != nil {
 		return &authv1.ValidateTokenResponse{
@@ -34,6 +40,15 @@ func (s *Server) ValidateToken(
 		UserId: validated.UserID,
 		Email:  validated.Email,
 	}, nil
+}
+
+func incomingRequestID(ctx context.Context) string {
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		if vals := md.Get("x-request-id"); len(vals) > 0 {
+			return vals[0]
+		}
+	}
+	return ""
 }
 
 func reason(err error) string {

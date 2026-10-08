@@ -3,12 +3,14 @@ package grpc
 import (
 	"context"
 	"database/sql"
+	"log"
 	"net"
 
 	ledgerv1 "son514/ledger-service/gen/ledger"
 	"son514/ledger-service/models"
 
 	googlegrpc "google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -25,6 +27,10 @@ func (s *Server) CreateLedgerEntries(
 	ctx context.Context,
 	req *ledgerv1.CreateLedgerEntriesRequest,
 ) (*ledgerv1.CreateLedgerEntriesResponse, error) {
+	if requestID := incomingRequestID(ctx); requestID != "" {
+		log.Printf("create_ledger_entries request_id=%s", requestID)
+	}
+
 	entries := make([]models.LedgerEntry, 0, len(req.GetEntries()))
 	for _, e := range req.GetEntries() {
 		entries = append(entries, models.LedgerEntry{
@@ -46,6 +52,10 @@ func (s *Server) TransactionHistory(
 	ctx context.Context,
 	req *ledgerv1.TransactionHistoryRequest,
 ) (*ledgerv1.TransactionHistoryResponse, error) {
+	if requestID := incomingRequestID(ctx); requestID != "" {
+		log.Printf("transaction_history request_id=%s", requestID)
+	}
+
 	entries, err := models.TransactionHistory(s.db, req.GetWalletId())
 	if err != nil {
 		return nil, err
@@ -62,6 +72,15 @@ func (s *Server) TransactionHistory(
 	}
 
 	return &ledgerv1.TransactionHistoryResponse{Entries: history}, nil
+}
+
+func incomingRequestID(ctx context.Context) string {
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		if vals := md.Get("x-request-id"); len(vals) > 0 {
+			return vals[0]
+		}
+	}
+	return ""
 }
 
 func Serve(listener net.Listener, db *sql.DB) error {
