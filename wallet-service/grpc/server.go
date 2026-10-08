@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log/slog"
 	"net"
 	"strconv"
+	"time"
 
 	authv1 "son514/wallet-service/gen/auth"
 	walletv1 "son514/wallet-service/gen/wallet"
@@ -13,6 +15,7 @@ import (
 
 	googlegrpc "google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -57,8 +60,45 @@ func (s *Server) CreateWallet(
 	}, nil
 }
 
-func Serve(listener net.Listener, db *sql.DB, auth authv1.AuthServiceClient) error {
-	server := googlegrpc.NewServer()
+func incomingRequestID(ctx context.Context) string {
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		if vals := md.Get("x-request-id"); len(vals) > 0 {
+			return vals[0]
+		}
+	}
+	return ""
+}
+
+func unaryRequestLog(logger *slog.Logger) googlegrpc.UnaryServerInterceptor {
+	return func(
+		ctx context.Context,
+		req any,
+		info *googlegrpc.UnaryServerInfo,
+		handler googlegrpc.UnaryHandler,
+	) (any, error) {
+		start := time.Now()
+		resp, err := handler(ctx, req)
+
+		attrs := []any{
+			"rpc", info.FullMethod,
+			"status", status.Code(err).String(),
+			"latency_ms", time.Since(start).Milliseconds(),
+		}
+		if requestID := incomingRequestID(ctx); requestID != "" {
+			attrs = append(attrs, "request_id", requestID)
+		}
+
+		if err != nil {
+			logger.Error("grpc_request", attrs...)
+		} else {
+			logger.Info("grpc_request", attrs...)
+		}
+		return resp, err
+	}
+}
+
+func Serve(listener net.Listener, db *sql.DB, auth authv1.AuthServiceClient, logger *slog.Logger) error {
+	server := googlegrpc.NewServer(googlegrpc.ChainUnaryInterceptor(unaryRequestLog(logger)))
 	walletv1.RegisterWalletServiceServer(server, NewServer(db, auth))
 	return server.Serve(listener)
 }

@@ -3,11 +3,13 @@ package grpc
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"net"
+	"time"
 
 	googlegrpc "google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 
 	authv1 "son514/auth-service/gen/auth"
 	"son514/auth-service/jwt"
@@ -23,10 +25,6 @@ func (s *Server) ValidateToken(
 	ctx context.Context,
 	req *authv1.ValidateTokenRequest,
 ) (*authv1.ValidateTokenResponse, error) {
-	if requestID := incomingRequestID(ctx); requestID != "" {
-		log.Printf("validate_token request_id=%s", requestID)
-	}
-
 	validated, err := jwt.Validate(req.GetToken())
 	if err != nil {
 		return &authv1.ValidateTokenResponse{
@@ -64,8 +62,39 @@ func reason(err error) string {
 	}
 }
 
-func Serve(listener net.Listener) error {
-	server := googlegrpc.NewServer()
+func unaryRequestLog(logger *slog.Logger) googlegrpc.UnaryServerInterceptor {
+	return func(
+		ctx context.Context,
+		req any,
+		info *googlegrpc.UnaryServerInfo,
+		handler googlegrpc.UnaryHandler,
+	) (any, error) {
+		start := time.Now()
+		resp, err := handler(ctx, req)
+
+		attrs := []any{
+			"rpc", info.FullMethod,
+			"status", status.Code(err).String(),
+			"latency_ms", time.Since(start).Milliseconds(),
+		}
+		if requestID := incomingRequestID(ctx); requestID != "" {
+			attrs = append(attrs, "request_id", requestID)
+		}
+		if validated, ok := resp.(*authv1.ValidateTokenResponse); ok && validated.GetUserId() != "" {
+			attrs = append(attrs, "user_id", validated.GetUserId())
+		}
+
+		if err != nil {
+			logger.Error("grpc_request", attrs...)
+		} else {
+			logger.Info("grpc_request", attrs...)
+		}
+		return resp, err
+	}
+}
+
+func Serve(listener net.Listener, logger *slog.Logger) error {
+	server := googlegrpc.NewServer(googlegrpc.ChainUnaryInterceptor(unaryRequestLog(logger)))
 	authv1.RegisterAuthServiceServer(server, &Server{})
 
 	return server.Serve(listener)

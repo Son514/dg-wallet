@@ -1,6 +1,6 @@
 package main
 
-// TODO: US-7 — Ledger Entries (Double-Entry)
+// TODO: US-13 — Structured JSON Logging
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -44,6 +45,36 @@ const (
 	requestIDHeader       = "X-Request-ID"
 )
 
+func newLogger() *slog.Logger {
+	return slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", "wallet-service")
+}
+
+func requestLog(logger *slog.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		start := time.Now()
+		c.Next()
+
+		attrs := []any{
+			"method", c.Request.Method,
+			"path", c.Request.URL.Path,
+			"status", c.Writer.Status(),
+			"latency_ms", time.Since(start).Milliseconds(),
+		}
+		if requestID := c.GetString("request_id"); requestID != "" {
+			attrs = append(attrs, "request_id", requestID)
+		}
+		if userID, ok := c.Get("user_id"); ok {
+			attrs = append(attrs, "user_id", userID)
+		}
+
+		if c.Writer.Status() >= http.StatusInternalServerError {
+			logger.Error("request", attrs...)
+		} else {
+			logger.Info("request", attrs...)
+		}
+	}
+}
+
 func requestIDMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		requestID := strings.TrimSpace(c.GetHeader(requestIDHeader))
@@ -52,6 +83,7 @@ func requestIDMiddleware() gin.HandlerFunc {
 		}
 		ctx := metadata.AppendToOutgoingContext(c.Request.Context(), "x-request-id", requestID)
 		c.Request = c.Request.WithContext(ctx)
+		c.Set("request_id", requestID)
 		c.Header(requestIDHeader, requestID)
 		c.Next()
 	}
@@ -84,6 +116,7 @@ func authenticatedUserID(auth authv1.AuthServiceClient, c *gin.Context) (int64, 
 		return 0, false
 	}
 
+	c.Set("user_id", userID)
 	return userID, true
 }
 
@@ -443,10 +476,14 @@ func main() {
 
 	ledger := ledgerv1.NewLedgerServiceClient(ledgerConn)
 
-	go serveGRPC(db, auth)
+	logger := newLogger()
 
-	router := gin.Default()
+	go serveGRPC(db, auth, logger)
+
+	router := gin.New()
+	router.Use(gin.Recovery())
 	router.Use(requestIDMiddleware())
+	router.Use(requestLog(logger))
 	/* --- Create a Wallet --- */
 	router.POST("/wallets", func(c *gin.Context) {
 		createWallet(db, auth, c)
@@ -475,7 +512,7 @@ func main() {
 	router.Run(":8081")
 }
 
-func serveGRPC(db *sql.DB, auth authv1.AuthServiceClient) {
+func serveGRPC(db *sql.DB, auth authv1.AuthServiceClient, logger *slog.Logger) {
 	port := os.Getenv("WALLET_GRPC_PORT")
 	if port == "" {
 		port = "50053"
@@ -488,7 +525,7 @@ func serveGRPC(db *sql.DB, auth authv1.AuthServiceClient) {
 
 	log.Println("wallet gRPC listening on", listener.Addr())
 
-	if err := grpcclient.Serve(listener, db, auth); err != nil {
+	if err := grpcclient.Serve(listener, db, auth, logger); err != nil {
 		log.Fatalf("grpc serve: %v", err)
 	}
 }

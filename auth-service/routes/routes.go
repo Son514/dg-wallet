@@ -54,6 +54,8 @@ func registerUser(database *sql.DB, wallet walletv1.WalletServiceClient, c *gin.
 		return
 	}
 
+	c.Set("user_id", id)
+
 	token, err := jwt.Generate(id, request.Email)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -91,6 +93,8 @@ func loginUser(database *sql.DB, c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	c.Set("user_id", id)
 
 	token, err := jwt.Generate(id, request.Email)
 	if err != nil {

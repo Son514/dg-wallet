@@ -552,6 +552,45 @@ The schema is `wallet-service/proto/wallet.proto` and generated code is in
 `wallet-service/gen/wallet/`. Run `make proto` from `wallet-service/` to
 regenerate the auth, ledger, and wallet bindings.
 
+## Structured Logging
+
+All three services log in JSON via `log/slog`, one record per API call at the
+service boundary:
+
+- auth-service and wallet-service log each HTTP request through a Gin
+  middleware (`msg: "request"`, plus `method` and `path`).
+- auth-service, ledger-service, and wallet-service's gRPC server log each RPC
+  through a unary interceptor (`msg: "grpc_request"`, plus `rpc`).
+
+Every record includes:
+
+| Field         | Description                                         |
+|---------------|-----------------------------------------------------|
+| `service`     | `auth-service`, `ledger-service`, or `wallet-service` |
+| `request_id`  | The `X-Request-ID` from the caller, or a generated UUID |
+| `user_id`     | Authenticated user id, when the service knows it    |
+| `latency_ms`  | Total call duration in milliseconds                 |
+| `status`      | HTTP status code, or gRPC status code               |
+
+Records for responses with HTTP status `>= 500` (or a failing gRPC call) are
+logged at `ERROR`; everything else at `INFO`. The user_id on HTTP requests is
+attached by the handler after authentication, so requests rejected before
+authentication omit it.
+
+Because `request_id` is propagated as `x-request-id` gRPC metadata (see the
+wallet-service endpoints section above), a single transfer produces matching
+records across wallet-service, auth-service, and ledger-service, e.g.:
+
+```json
+{"time":"2026-10-08T00:00:00Z","level":"INFO","msg":"request","service":"wallet-service","method":"POST","path":"/transfers","status":200,"latency_ms":42,"request_id":"my-trace-abc-123","user_id":1}
+{"time":"2026-10-08T00:00:00.001Z","level":"INFO","msg":"grpc_request","service":"auth-service","rpc":"/auth.AuthService/ValidateToken","status":"OK","latency_ms":1,"request_id":"my-trace-abc-123","user_id":"1"}
+{"time":"2026-10-08T00:00:00.010Z","level":"INFO","msg":"grpc_request","service":"ledger-service","rpc":"/ledger.LedgerService/CreateLedgerEntries","status":"OK","latency_ms":8,"request_id":"my-trace-abc-123"}
+```
+
+Existing ad-hoc `log.Printf` calls (cache, startup) are unchanged. user_id is
+not available on the ledger-service and wallet-service gRPC records, since
+neither RPC carries a user id in its request or response.
+
 ## Project Structure
 
 ```
